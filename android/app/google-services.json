@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "169566722649",
+    "project_id": "flutter-afterglow",
+    "storage_bucket": "flutter-afterglow.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:169566722649:android:76e49b7ee1b1dee2986f48",
+        "android_client_info": {
+          "package_name": "com.example.afterglow_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzrpqbHJT1NQuCGICTmx5ZI7HWXJ2rCkA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
