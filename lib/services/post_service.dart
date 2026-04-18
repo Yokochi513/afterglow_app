@@ -14,28 +14,34 @@ class PostService {
   static const String postsCollection = 'posts';
 
   Future<bool> createPost(Post post, List<XFile> imageFiles) async {
-    List<String> imageUrls = [];
-    for (final imageFile in imageFiles) {
-      final storageRef = _storage.ref().child(
-        'posts/${post.userId}/${post.id}.jpg',
+    try {
+      final imageUrls = await Future.wait(
+        imageFiles.asMap().entries.map((entry) async {
+          final index = entry.key;
+          final imageFile = entry.value;
+          final storageRef = _storage.ref().child(
+            'posts/${post.userId}/${post.id}_$index.jpg',
+          );
+
+          final uploadTask = await storageRef.putData(
+            await imageFile.readAsBytes(),
+          );
+          return uploadTask.ref.getDownloadURL();
+        }),
       );
 
-      final uploadTask = await storageRef.putData(
-        await imageFile.readAsBytes(),
-      );
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
-      imageUrls.add(downloadUrl);
+      await _firestore.collection(postsCollection).doc(post.id).set({
+        'userId': post.userId,
+        'caption': post.caption,
+        'imageUrls': imageUrls,
+        'latitude': post.latitude,
+        'longitude': post.longitude,
+        'createdAt': Timestamp.fromDate(post.createdAt),
+      });
+      return true;
+    } catch (_) {
+      return false;
     }
-
-    await _firestore.collection(postsCollection).doc(post.id).set({
-      'userId': post.userId,
-      'caption': post.caption,
-      'imageUrls': imageUrls,
-      'latitude': post.latitude,
-      'longitude': post.longitude,
-      'createdAt': Timestamp.fromDate(post.createdAt),
-    });
-    return true;
   }
 
   Stream<List<Post>> getPosts() {
