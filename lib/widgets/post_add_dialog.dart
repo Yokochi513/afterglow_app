@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/foundation.dart';
@@ -24,8 +22,9 @@ class _PostAddDialogState extends State<PostAddDialog> {
 
   final PostService postService = PostService();
 
-  List<XFile> _selectedImages = [];
+  final List<XFile> _selectedImages = [];
   int _currentImageIndex = 0;
+  bool _isPosting = false;
 
   @override
   void dispose() {
@@ -36,8 +35,8 @@ class _PostAddDialogState extends State<PostAddDialog> {
 
   // 複数画像選択
   Future<void> pickAndUploadImages() async {
-    final List<XFile>? picked = await _imagePicker.pickMultiImage();
-    if (picked != null && picked.isNotEmpty) {
+    final List<XFile> picked = await _imagePicker.pickMultiImage();
+    if (picked.isNotEmpty) {
       setState(() {
         _selectedImages.addAll(picked);
       });
@@ -255,39 +254,73 @@ class _PostAddDialogState extends State<PostAddDialog> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      child: const Text('投稿する'),
-                      onPressed: () async {
-                        if (_selectedImages.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('画像を選択してください'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          return;
-                        }
-                        final post = Post(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          userId: 'test_user',
-                          caption: _captionController.text,
-                          imageUrls: [],
-                          latitude: widget.pos.latitude,
-                          longitude: widget.pos.longitude,
-                          createdAt: DateTime.now(),
-                        );
+                      onPressed: _isPosting
+                          ? null
+                          : () async {
+                              if (_selectedImages.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('画像を選択してください'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
 
-                        final success = await postService.createPost(
-                          post,
-                          _selectedImages,
-                        );
-                        if (success) {
-                          Navigator.of(context).pop();
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("投稿に失敗しました")),
-                          );
-                        }
-                      },
+                              setState(() {
+                                _isPosting = true;
+                              });
+
+                              showDialog<void>(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (_) => const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+
+                              final post = Post(
+                                id: DateTime.now().millisecondsSinceEpoch
+                                    .toString(),
+                                userId: 'test_user',
+                                caption: _captionController.text,
+                                imageUrls: [],
+                                latitude: widget.pos.latitude,
+                                longitude: widget.pos.longitude,
+                                createdAt: DateTime.now(),
+                              );
+
+                              final success = await postService.createPost(
+                                post,
+                                _selectedImages,
+                              );
+
+                              if (!context.mounted) return;
+
+                              Navigator.of(context, rootNavigator: true).pop();
+
+                              setState(() {
+                                _isPosting = false;
+                              });
+
+                              if (success) {
+                                Navigator.of(context).pop();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('投稿に失敗しました')),
+                                );
+                              }
+                            },
+                      child: _isPosting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('投稿する'),
                     ),
                   ),
                   const SizedBox(height: 12),
