@@ -68,6 +68,55 @@ void main() {
       expect(imageUrls.first, isNotEmpty);
     });
 
+    test('createPost uploads multiple images with distinct URLs', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'post_service_test_multi',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final firstImage = await File(
+        '${tempDir.path}/image_1.jpg',
+      ).writeAsBytes(<int>[1, 2, 3]);
+      final secondImage = await File(
+        '${tempDir.path}/image_2.jpg',
+      ).writeAsBytes(<int>[4, 5, 6]);
+
+      final post = Post(
+        id: 'post-multi',
+        userId: 'user-1',
+        caption: 'two images',
+        imageUrls: const [],
+        latitude: 35.6895,
+        longitude: 139.6917,
+        createdAt: DateTime(2026, 4, 18, 11, 0),
+      );
+
+      final success = await service.createPost(post, [
+        XFile(firstImage.path),
+        XFile(secondImage.path),
+      ]);
+
+      expect(success, isTrue);
+
+      final snapshot = await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .get();
+
+      final data = snapshot.data();
+      expect(data, isNotNull);
+
+      final imageUrls = List<String>.from(data!['imageUrls'] as List<dynamic>);
+      expect(imageUrls, hasLength(2));
+      expect(imageUrls[0], isNotEmpty);
+      expect(imageUrls[1], isNotEmpty);
+      expect(imageUrls[0], isNot(imageUrls[1]));
+    });
+
     test('getPosts returns posts in reverse snapshot order', () async {
       final firstPost = Post(
         id: 'post-1',
