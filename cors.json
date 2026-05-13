@@ -1,6 +1,6 @@
 [
   {
-    "origin": ["http://localhost:5000", "http://localhost:3000"],
+    "origin": ["*"],
     "method": ["GET", "HEAD", "OPTIONS"],
     "responseHeader": ["Content-Type"],
     "maxAgeSeconds": 3600
