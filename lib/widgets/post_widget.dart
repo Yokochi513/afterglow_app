@@ -19,6 +19,33 @@ class _PostCardViewState extends State<PostCardView> {
   );
 
   int _currentImageIndex = 0;
+  final Map<int, DateTime> _loadStartTimes = {};
+
+  void _measureImageLoad(int index, String url) {
+    final start = DateTime.now();
+    _loadStartTimes[index] = start;
+    final stream = NetworkImage(url).resolve(const ImageConfiguration());
+    stream.addListener(
+      ImageStreamListener(
+        (info, synchronousCall) {
+          final recorded = _loadStartTimes.remove(index);
+          if (recorded != null && !synchronousCall) {
+            final ms = DateTime.now().difference(recorded).inMilliseconds;
+            debugPrint('[ImageTimer] index=$index loaded in ${ms}ms  url=$url');
+          } else if (synchronousCall) {
+            _loadStartTimes.remove(index);
+            debugPrint(
+              '[ImageTimer] index=$index loaded synchronously (cache hit)  url=$url',
+            );
+          }
+        },
+        onError: (error, _) {
+          _loadStartTimes.remove(index);
+          debugPrint('[ImageTimer] index=$index error: $error  url=$url');
+        },
+      ),
+    );
+  }
 
   void _showPreviousImage() {
     if (_currentImageIndex > 0) {
@@ -105,6 +132,7 @@ class _PostCardViewState extends State<PostCardView> {
                                   });
                                 },
                                 itemBuilder: (context, index) {
+                                  _measureImageLoad(index, _imageUrls[index]);
                                   return Image.network(
                                     _imageUrls[index],
                                     width: double.infinity,
