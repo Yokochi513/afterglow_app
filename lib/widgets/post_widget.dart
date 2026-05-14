@@ -1,4 +1,5 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 class PostCardView extends StatefulWidget {
@@ -24,7 +25,9 @@ class _PostCardViewState extends State<PostCardView> {
   void _measureImageLoad(int index, String url) {
     final start = DateTime.now();
     _loadStartTimes[index] = start;
-    final stream = NetworkImage(url).resolve(const ImageConfiguration());
+    final stream = CachedNetworkImageProvider(
+      url,
+    ).resolve(const ImageConfiguration());
     stream.addListener(
       ImageStreamListener(
         (info, synchronousCall) {
@@ -133,27 +136,18 @@ class _PostCardViewState extends State<PostCardView> {
                                 },
                                 itemBuilder: (context, index) {
                                   _measureImageLoad(index, _imageUrls[index]);
-                                  return Image.network(
-                                    _imageUrls[index],
+                                  return CachedNetworkImage(
+                                    imageUrl: _imageUrls[index],
                                     width: double.infinity,
                                     height: double.infinity,
                                     fit: BoxFit.cover,
-                                    loadingBuilder:
-                                        (context, child, loadingProgress) {
-                                          if (loadingProgress == null) {
-                                            return child;
-                                          }
-
-                                          return Container(
-                                            color: Colors.grey.shade200,
-                                            child: const Center(
-                                              child:
-                                                  CircularProgressIndicator(),
-                                            ),
-                                          );
-                                        },
-                                    errorBuilder: (context, error, stackTrace) {
-                                      debugPrint(_imageUrls[index]);
+                                    placeholder: (context, url) => Container(
+                                      color: Colors.grey.shade200,
+                                      child: const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    ),
+                                    errorWidget: (context, url, error) {
                                       debugPrint(error.toString());
                                       return Container(
                                         color: Colors.grey.shade200,

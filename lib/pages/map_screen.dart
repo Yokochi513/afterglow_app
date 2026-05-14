@@ -2,6 +2,7 @@ import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -37,6 +38,17 @@ class _MapScreenState extends State<MapScreen> {
           }
 
           final posts = snapshot.data ?? [];
+
+          // 画像プリロード: Firestore データ到着後に裏でダウンロード開始
+          for (final post in posts) {
+            for (final url in post.imageUrls) {
+              precacheImage(
+                CachedNetworkImageProvider(url),
+                context,
+                onError: (_, __) {},
+              );
+            }
+          }
 
           return FlutterMap(
             options: MapOptions(
