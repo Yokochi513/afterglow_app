@@ -26,6 +26,9 @@ class _MapScreenState extends State<MapScreen> {
   final PostService _postService = PostService();
   late final Stream<List<Post>> _postsStream = _postService.getPosts();
 
+  // 既にプリキャッシュ済みの画像URL（再ビルドでの重複プリキャッシュを防ぐ）
+  final Set<String> _precachedUrls = {};
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -40,13 +43,16 @@ class _MapScreenState extends State<MapScreen> {
           final posts = snapshot.data ?? [];
 
           // 画像プリロード: Firestore データ到着後に裏でダウンロード開始
+          // （URLごとに一度だけ実行し、再ビルドでの重複ダウンロードを防ぐ）
           for (final post in posts) {
             for (final url in post.imageUrls) {
-              precacheImage(
-                CachedNetworkImageProvider(url),
-                context,
-                onError: (_, __) {},
-              );
+              if (_precachedUrls.add(url)) {
+                precacheImage(
+                  CachedNetworkImageProvider(url),
+                  context,
+                  onError: (_, _) {},
+                );
+              }
             }
           }
 

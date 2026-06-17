@@ -25,6 +25,12 @@ class PostService {
 
           final uploadTask = await storageRef.putData(
             await imageFile.readAsBytes(),
+            SettableMetadata(
+              contentType: 'image/jpeg',
+              // 投稿画像は不変なので長期キャッシュを許可し、CDN/クライアント
+              // キャッシュを効かせて2回目以降のロードを高速化する
+              cacheControl: 'public, max-age=31536000, immutable',
+            ),
           );
           return uploadTask.ref.getDownloadURL();
         }),

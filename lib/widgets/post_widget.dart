@@ -136,11 +136,23 @@ class _PostCardViewState extends State<PostCardView> {
                                 },
                                 itemBuilder: (context, index) {
                                   _measureImageLoad(index, _imageUrls[index]);
+                                  // 表示サイズに合わせてデコードし、メモリ使用量と
+                                  // デコード時間を抑える
+                                  final cacheWidth =
+                                      (MediaQuery.of(context).size.width *
+                                              MediaQuery.of(
+                                                context,
+                                              ).devicePixelRatio)
+                                          .round();
                                   return CachedNetworkImage(
                                     imageUrl: _imageUrls[index],
                                     width: double.infinity,
                                     height: double.infinity,
                                     fit: BoxFit.cover,
+                                    memCacheWidth: cacheWidth,
+                                    fadeInDuration: const Duration(
+                                      milliseconds: 150,
+                                    ),
                                     placeholder: (context, url) => Container(
                                       color: Colors.grey.shade200,
                                       child: const Center(

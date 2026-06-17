@@ -36,7 +36,12 @@ class _PostAddDialogState extends State<PostAddDialog> {
 
   // 複数画像選択
   Future<void> pickAndUploadImages() async {
-    final List<XFile> picked = await _imagePicker.pickMultiImage();
+    // ピック時にリサイズ・再圧縮し、アップロード/ダウンロードを軽量化する
+    final List<XFile> picked = await _imagePicker.pickMultiImage(
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 85,
+    );
     if (picked.isEmpty) {
       return;
     }
