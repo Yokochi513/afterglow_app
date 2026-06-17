@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "firebase": {
+      "command": "firebase",
+      "args": [
+        "mcp",
+        "--dir",
+        "C:/Users/yokoc/Documents/git/AfterGrow"
+      ]
+    },
+    "dart-mcp-server": {
+      "command": "dart",
+      "args": [
+        "mcp-server"
+      ],
+      "env": {}
+    }
+  }
+}
