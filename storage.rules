@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// =====================================================================
+// 【暫定・開発用ルール】
+// 現状アプリは認証(Firebase Auth)が未実装のため、認証なしで読み書きを
+// 許可しています。テストモードのような期限切れはありません。
+//
+// ⚠️ セキュリティ警告: このルールは誰でも Storage 上の画像の閲覧・
+// アップロード・削除が可能な状態です。本番公開前に必ず認証ベースの
+// ルールへ差し替えること。
+//
+// Phase1 の認証基盤実装後、例:
+//   match /posts/{userId}/{fileName} {
+//     allow read: if true; // 画像表示は公開
+//     allow write: if request.auth != null && request.auth.uid == userId;
+//   }
+// のように制限すること。docs/prompts/phase1_roadmap.md 参照。
+// =====================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}
