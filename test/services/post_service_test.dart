@@ -157,6 +157,124 @@ void main() {
       expect(posts.first.caption, secondPost.caption);
       expect(posts.last.caption, firstPost.caption);
     });
+
+    test('getPosts emits an empty list when there are no posts', () async {
+      final posts = await service.getPosts().first;
+
+      expect(posts, isEmpty);
+    });
+
+    test('getPosts stream emits again when a post is added', () async {
+      final emissions = <List<Post>>[];
+      final subscription = service.getPosts().listen(emissions.add);
+      addTearDown(subscription.cancel);
+
+      await firestore
+          .collection(PostService.postsCollection)
+          .doc('post-1')
+          .set(_toDocument(
+            Post(
+              id: 'post-1',
+              userId: 'user-1',
+              caption: 'live post',
+              imageUrls: const [],
+              latitude: 35.0,
+              longitude: 139.0,
+              createdAt: DateTime(2026, 4, 18, 9, 0),
+            ),
+          ));
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(emissions.last, hasLength(1));
+      expect(emissions.last.single.caption, 'live post');
+    });
+
+    test('createPost succeeds and stores no URLs when given no images', () async {
+      final post = Post(
+        id: 'post-no-image',
+        userId: 'user-1',
+        caption: 'text only',
+        imageUrls: const [],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 12, 0),
+      );
+
+      final success = await service.createPost(post, const []);
+
+      expect(success, isTrue);
+
+      final snapshot = await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .get();
+      final data = snapshot.data();
+      expect(data, isNotNull);
+      expect(data!['imageUrls'], isEmpty);
+    });
+
+    test('createPost stores images under the user/post namespaced path', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'post_service_test_path',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final imageFile = await File(
+        '${tempDir.path}/image.jpg',
+      ).writeAsBytes(<int>[1, 2, 3]);
+
+      final post = Post(
+        id: 'post-path',
+        userId: 'user-42',
+        caption: 'path check',
+        imageUrls: const [],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 13, 0),
+      );
+
+      await service.createPost(post, [XFile(imageFile.path)]);
+
+      final snapshot = await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .get();
+      final imageUrls = List<String>.from(
+        snapshot.data()!['imageUrls'] as List<dynamic>,
+      );
+
+      expect(imageUrls.single, contains('posts/user-42/post-path_0.jpg'));
+    });
+
+    test('createPost returns false and writes nothing when an image is missing',
+        () async {
+      final post = Post(
+        id: 'post-bad-image',
+        userId: 'user-1',
+        caption: 'broken',
+        imageUrls: const [],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 14, 0),
+      );
+
+      final success = await service.createPost(post, [
+        XFile('${Directory.systemTemp.path}/does_not_exist.jpg'),
+      ]);
+
+      expect(success, isFalse);
+
+      final snapshot = await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .get();
+      expect(snapshot.exists, isFalse);
+    });
   });
 }
 
