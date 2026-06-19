@@ -1,1 +1,40 @@
-{"firestore":{"rules":"firestore.rules"},"storage":{"rules":"storage.rules"},"flutter":{"platforms":{"android":{"default":{"projectId":"flutter-afterglow","appId":"1:169566722649:android:76e49b7ee1b1dee2986f48","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"flutter-afterglow","configurations":{"android":"1:169566722649:android:76e49b7ee1b1dee2986f48","ios":"1:169566722649:ios:c8648d2ac2c86e3c986f48","macos":"1:169566722649:ios:c8648d2ac2c86e3c986f48","web":"1:169566722649:web:a097854abe411973986f48","windows":"1:169566722649:web:a097854abe411973986f48"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "flutter-afterglow",
+          "appId": "1:169566722649:android:76e49b7ee1b1dee2986f48",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "flutter-afterglow",
+          "configurations": {
+            "android": "1:169566722649:android:76e49b7ee1b1dee2986f48",
+            "ios": "1:169566722649:ios:c8648d2ac2c86e3c986f48",
+            "macos": "1:169566722649:ios:c8648d2ac2c86e3c986f48",
+            "web": "1:169566722649:web:a097854abe411973986f48",
+            "windows": "1:169566722649:web:a097854abe411973986f48"
+          }
+        }
+      }
+    }
+  }
+}
