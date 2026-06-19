@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -21,6 +22,7 @@ class _PostAddDialogState extends State<PostAddDialog> {
   final PageController _pageController = PageController();
 
   final PostService postService = PostService();
+  final AuthService authService = AuthService();
 
   final List<XFile> _selectedImages = [];
   final List<Uint8List> _previewImageBytes = [];
@@ -287,6 +289,17 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                       return;
                                     }
 
+                                    final userId = authService.currentUserId;
+                                    if (userId == null) {
+                                      messenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text('ログインが必要です'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                      return;
+                                    }
+
                                     setState(() {
                                       _isPosting = true;
                                     });
@@ -294,7 +307,7 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                     final post = Post(
                                       id: DateTime.now().millisecondsSinceEpoch
                                           .toString(),
-                                      userId: 'test_user',
+                                      userId: userId,
                                       caption: _captionController.text,
                                       imageUrls: [],
                                       latitude: widget.pos.latitude,
