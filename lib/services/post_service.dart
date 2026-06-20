@@ -57,4 +57,21 @@ class PostService {
           .toList(growable: false);
     });
   }
+
+  /// 指定ユーザーの投稿を新しい順に購読する。プロフィールの投稿グリッド用。
+  Stream<List<Post>> getUserPosts(String userId) {
+    return _firestore
+        .collection(postsCollection)
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((event) {
+          final posts = event.docs
+              .map(
+                (document) => Post.fromSnapshot(document.id, document.data()),
+              )
+              .toList();
+          posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return posts;
+        });
+  }
 }
