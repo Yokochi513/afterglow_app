@@ -50,6 +50,32 @@ class PostService {
     }
   }
 
+  /// 投稿を削除する。Firestore ドキュメントを削除した後、作成時と同じ命名規則で
+  /// Storage 上の画像も削除する。Storage の削除に失敗しても、投稿は一覧・マップ
+  /// から消えるため削除自体は成功扱いとする。
+  Future<bool> deletePost(Post post) async {
+    try {
+      await _firestore.collection(postsCollection).doc(post.id).delete();
+    } catch (_) {
+      return false;
+    }
+
+    await Future.wait(
+      List.generate(post.imageUrls.length, (index) async {
+        try {
+          await _storage
+              .ref()
+              .child('posts/${post.userId}/${post.id}_$index.jpg')
+              .delete();
+        } catch (_) {
+          // 画像が既に存在しない等で失敗しても投稿削除は成功とみなす
+        }
+      }),
+    );
+
+    return true;
+  }
+
   Stream<List<Post>> getPosts() {
     return _firestore.collection(postsCollection).snapshots().map((event) {
       return event.docs.reversed
