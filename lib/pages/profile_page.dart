@@ -198,8 +198,20 @@ class _ProfileBody extends StatelessWidget {
                         : CachedNetworkImage(
                             imageUrl: thumbnailUrl,
                             fit: BoxFit.cover,
-                            placeholder: (context, url) =>
-                                Container(color: Colors.grey.shade200),
+                            // 読み込み中（通信が遅いだけ）はローディング表示。
+                            // 本当のHTTPエラー時のみ errorWidget を表示する。
+                            placeholder: (context, url) => Container(
+                              color: Colors.grey.shade200,
+                              child: const Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
                             errorWidget: (context, url, error) => Container(
                               color: Colors.grey.shade200,
                               child: const Icon(
