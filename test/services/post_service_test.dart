@@ -172,17 +172,19 @@ void main() {
       await firestore
           .collection(PostService.postsCollection)
           .doc('post-1')
-          .set(_toDocument(
-            Post(
-              id: 'post-1',
-              userId: 'user-1',
-              caption: 'live post',
-              imageUrls: const [],
-              latitude: 35.0,
-              longitude: 139.0,
-              createdAt: DateTime(2026, 4, 18, 9, 0),
+          .set(
+            _toDocument(
+              Post(
+                id: 'post-1',
+                userId: 'user-1',
+                caption: 'live post',
+                imageUrls: const [],
+                latitude: 35.0,
+                longitude: 139.0,
+                createdAt: DateTime(2026, 4, 18, 9, 0),
+              ),
             ),
-          ));
+          );
 
       await Future<void>.delayed(Duration.zero);
 
@@ -190,33 +192,76 @@ void main() {
       expect(emissions.last.single.caption, 'live post');
     });
 
-    test('createPost succeeds and stores no URLs when given no images', () async {
-      final post = Post(
-        id: 'post-no-image',
-        userId: 'user-1',
-        caption: 'text only',
-        imageUrls: const [],
-        latitude: 35.0,
-        longitude: 139.0,
-        createdAt: DateTime(2026, 4, 18, 12, 0),
-      );
+    test(
+      'createPost succeeds and stores no URLs when given no images',
+      () async {
+        final post = Post(
+          id: 'post-no-image',
+          userId: 'user-1',
+          caption: 'text only',
+          imageUrls: const [],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 4, 18, 12, 0),
+        );
 
-      final success = await service.createPost(post, const []);
+        final success = await service.createPost(post, const []);
 
-      expect(success, isTrue);
+        expect(success, isTrue);
 
-      final snapshot = await firestore
-          .collection(PostService.postsCollection)
-          .doc(post.id)
-          .get();
-      final data = snapshot.data();
-      expect(data, isNotNull);
-      expect(data!['imageUrls'], isEmpty);
-    });
+        final snapshot = await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .get();
+        final data = snapshot.data();
+        expect(data, isNotNull);
+        expect(data!['imageUrls'], isEmpty);
+      },
+    );
 
-    test('createPost stores images under the user/post namespaced path', () async {
+    test(
+      'createPost stores images under the user/post namespaced path',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'post_service_test_path',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final imageFile = await File(
+          '${tempDir.path}/image.jpg',
+        ).writeAsBytes(<int>[1, 2, 3]);
+
+        final post = Post(
+          id: 'post-path',
+          userId: 'user-42',
+          caption: 'path check',
+          imageUrls: const [],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 4, 18, 13, 0),
+        );
+
+        await service.createPost(post, [XFile(imageFile.path)]);
+
+        final snapshot = await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .get();
+        final imageUrls = List<String>.from(
+          snapshot.data()!['imageUrls'] as List<dynamic>,
+        );
+
+        expect(imageUrls.single, contains('posts/user-42/post-path_0.jpg'));
+      },
+    );
+
+    test('deletePost removes the post document and its images', () async {
       final tempDir = await Directory.systemTemp.createTemp(
-        'post_service_test_path',
+        'post_service_test_delete',
       );
       addTearDown(() async {
         if (await tempDir.exists()) {
@@ -229,45 +274,73 @@ void main() {
       ).writeAsBytes(<int>[1, 2, 3]);
 
       final post = Post(
-        id: 'post-path',
-        userId: 'user-42',
-        caption: 'path check',
+        id: 'post-delete',
+        userId: 'user-1',
+        caption: 'to be deleted',
         imageUrls: const [],
         latitude: 35.0,
         longitude: 139.0,
-        createdAt: DateTime(2026, 4, 18, 13, 0),
+        createdAt: DateTime(2026, 4, 18, 15, 0),
       );
 
       await service.createPost(post, [XFile(imageFile.path)]);
+
+      final created = await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .get();
+      final storedUrls = List<String>.from(
+        created.data()!['imageUrls'] as List<dynamic>,
+      );
+
+      final success = await service.deletePost(
+        Post(
+          id: post.id,
+          userId: post.userId,
+          caption: post.caption,
+          imageUrls: storedUrls,
+          latitude: post.latitude,
+          longitude: post.longitude,
+          createdAt: post.createdAt,
+        ),
+      );
+
+      expect(success, isTrue);
 
       final snapshot = await firestore
           .collection(PostService.postsCollection)
           .doc(post.id)
           .get();
-      final imageUrls = List<String>.from(
-        snapshot.data()!['imageUrls'] as List<dynamic>,
-      );
+      expect(snapshot.exists, isFalse);
 
-      expect(imageUrls.single, contains('posts/user-42/post-path_0.jpg'));
+      await expectLater(
+        () => storage
+            .ref()
+            .child('posts/user-1/post-delete_0.jpg')
+            .getDownloadURL(),
+        throwsA(anything),
+      );
     });
 
-    test('createPost returns false and writes nothing when an image is missing',
-        () async {
+    test('deletePost succeeds even when the post has no images', () async {
       final post = Post(
-        id: 'post-bad-image',
+        id: 'post-no-image-delete',
         userId: 'user-1',
-        caption: 'broken',
+        caption: 'text only',
         imageUrls: const [],
         latitude: 35.0,
         longitude: 139.0,
-        createdAt: DateTime(2026, 4, 18, 14, 0),
+        createdAt: DateTime(2026, 4, 18, 16, 0),
       );
 
-      final success = await service.createPost(post, [
-        XFile('${Directory.systemTemp.path}/does_not_exist.jpg'),
-      ]);
+      await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .set(_toDocument(post));
 
-      expect(success, isFalse);
+      final success = await service.deletePost(post);
+
+      expect(success, isTrue);
 
       final snapshot = await firestore
           .collection(PostService.postsCollection)
@@ -275,6 +348,33 @@ void main() {
           .get();
       expect(snapshot.exists, isFalse);
     });
+
+    test(
+      'createPost returns false and writes nothing when an image is missing',
+      () async {
+        final post = Post(
+          id: 'post-bad-image',
+          userId: 'user-1',
+          caption: 'broken',
+          imageUrls: const [],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 4, 18, 14, 0),
+        );
+
+        final success = await service.createPost(post, [
+          XFile('${Directory.systemTemp.path}/does_not_exist.jpg'),
+        ]);
+
+        expect(success, isFalse);
+
+        final snapshot = await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .get();
+        expect(snapshot.exists, isFalse);
+      },
+    );
   });
 }
 

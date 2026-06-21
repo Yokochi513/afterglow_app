@@ -1,4 +1,5 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
@@ -32,7 +33,20 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Map')),
+      appBar: AppBar(
+        title: const Text('Map'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            tooltip: 'プロフィール',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
+              );
+            },
+          ),
+        ],
+      ),
       body: StreamBuilder<List<Post>>(
         stream: _postsStream,
         builder: (context, snapshot) {
