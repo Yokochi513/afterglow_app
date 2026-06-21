@@ -526,6 +526,7 @@ class _PostCardViewState extends State<PostCardView> {
                           readOnly: !_isEditing,
                           decoration: InputDecoration(
                             labelText: '説明文',
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
                             border: const OutlineInputBorder(),
                             filled: _isEditing,
                           ),
