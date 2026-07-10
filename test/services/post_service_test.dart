@@ -44,6 +44,8 @@ void main() {
         latitude: 35.6895,
         longitude: 139.6917,
         createdAt: DateTime(2026, 4, 18, 10, 30),
+        locationName: '大阪城',
+        tags: const ['桜', '夜景'],
       );
 
       await service.createPost(post, [XFile(imageFile.path)]);
@@ -62,6 +64,12 @@ void main() {
       expect(data['latitude'], post.latitude);
       expect(data['longitude'], post.longitude);
       expect((data['createdAt'] as Timestamp).toDate(), post.createdAt);
+      expect(data['locationName'], '大阪城');
+      expect(List<String>.from(data['tags'] as List<dynamic>), <String>[
+        '桜',
+        '夜景',
+      ]);
+      expect(data['likeCount'], 0);
 
       final imageUrls = List<String>.from(data['imageUrls'] as List<dynamic>);
       expect(imageUrls, hasLength(1));
@@ -375,6 +383,49 @@ void main() {
         expect(snapshot.exists, isFalse);
       },
     );
+
+    test('updatePost writes updatedAt along with the edited fields', () async {
+      final post = Post(
+        id: 'post-update',
+        userId: 'user-1',
+        caption: 'before',
+        imageUrls: const ['https://example.com/1.jpg'],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 17, 0),
+      );
+
+      await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .set(_toDocument(post));
+
+      final before = DateTime.now();
+      final success = await service.updatePost(
+        post,
+        caption: 'after',
+        imageUrls: const [],
+        removedImageUrls: const ['https://example.com/1.jpg'],
+      );
+      final after = DateTime.now();
+
+      expect(success, isTrue);
+
+      final data =
+          (await firestore
+                  .collection(PostService.postsCollection)
+                  .doc(post.id)
+                  .get())
+              .data();
+      expect(data!['caption'], 'after');
+
+      final updatedAt = (data['updatedAt'] as Timestamp).toDate();
+      expect(
+        updatedAt.isBefore(before.subtract(const Duration(seconds: 1))),
+        isFalse,
+      );
+      expect(updatedAt.isAfter(after.add(const Duration(seconds: 1))), isFalse);
+    });
   });
 }
 

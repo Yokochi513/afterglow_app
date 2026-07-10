@@ -9,6 +9,10 @@ class Post {
     required this.latitude,
     required this.longitude,
     required this.createdAt,
+    this.locationName,
+    this.tags = const [],
+    this.likeCount = 0,
+    this.updatedAt,
   });
 
   final String id;
@@ -18,6 +22,18 @@ class Post {
   final double latitude;
   final double longitude;
   final DateTime createdAt;
+
+  /// 場所名（自由入力）。未設定なら null。
+  final String? locationName;
+
+  /// タグ一覧（PS_03）。欠損時は空配列。
+  final List<String> tags;
+
+  /// いいね数（非正規化）。欠損時は 0。
+  final int likeCount;
+
+  /// 更新日時（PS_08）。未編集なら null。
+  final DateTime? updatedAt;
 
   factory Post.fromSnapshot(String id, Map<String, dynamic> document) {
     return Post(
@@ -29,6 +45,10 @@ class Post {
       longitude: document['longitude']?.toDouble() ?? 0.0,
       createdAt:
           (document['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      locationName: document['locationName'],
+      tags: List<String>.from(document['tags'] ?? []),
+      likeCount: document['likeCount'] ?? 0,
+      updatedAt: (document['updatedAt'] as Timestamp?)?.toDate(),
     );
   }
 }

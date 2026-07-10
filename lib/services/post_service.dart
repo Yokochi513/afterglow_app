@@ -42,6 +42,10 @@ class PostService {
         'imageUrls': imageUrls,
         'latitude': post.latitude,
         'longitude': post.longitude,
+        'locationName': post.locationName,
+        'tags': post.tags,
+        // 新規投稿のいいね数は必ず 0 から始まる
+        'likeCount': 0,
         'createdAt': Timestamp.fromDate(post.createdAt),
       });
       return true;
@@ -67,6 +71,8 @@ class PostService {
       await _firestore.collection(postsCollection).doc(post.id).update({
         'caption': caption,
         'imageUrls': imageUrls,
+        // 編集日時を記録する（PS_08）
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
     } catch (_) {
       return false;
