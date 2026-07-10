@@ -54,7 +54,7 @@ test/                    models/ services/ widgets/ 単位のテスト
 - **`main` への push は本番デプロイ**: `.github/workflows/deploy.yml` が `main` push で Web をビルドし GitHub Pages へ公開する。したがって `dev` → `main` のマージ = リリース = 公開。壊れた状態を `main` に入れないこと。
 - リリース後は `dev` が `main` より遅れないよう、必要なら `main` を `dev` に取り込んで先行状態を保つ。
 
-関連スキル: フィーチャー実装は `dev` 上から `/feat-pr`（開始ブランチ＝PR base）。Issue 実装は `/implement-afterglow-issue`（base = `dev`）。
+開発は原則 GitHub Issue を起点にする。実装は `/implement-afterglow-issue` を使い、`dev` からフィーチャーブランチを切って base = `dev` の PR を出す。
 
 ## 検証（validation）
 
