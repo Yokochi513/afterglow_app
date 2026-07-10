@@ -24,6 +24,49 @@ void main() {
       expect(post.createdAt, createdAt);
     });
 
+    test('maps the extended fields when present', () {
+      final updatedAt = DateTime(2026, 4, 19, 12, 0);
+      final post = Post.fromSnapshot('post-1', <String, dynamic>{
+        'userId': 'user-1',
+        'createdAt': Timestamp.fromDate(DateTime(2026, 4, 18)),
+        'locationName': '大阪城',
+        'tags': <String>['桜', '夜景'],
+        'likeCount': 5,
+        'updatedAt': Timestamp.fromDate(updatedAt),
+      });
+
+      expect(post.locationName, '大阪城');
+      expect(post.tags, <String>['桜', '夜景']);
+      expect(post.likeCount, 5);
+      expect(post.updatedAt, updatedAt);
+    });
+
+    test('defaults the extended fields when missing (backward compatible)', () {
+      final post = Post.fromSnapshot('post-1', <String, dynamic>{
+        'userId': 'user-1',
+        'createdAt': Timestamp.fromDate(DateTime(2026, 1, 1)),
+      });
+
+      expect(post.locationName, isNull);
+      expect(post.tags, isEmpty);
+      expect(post.likeCount, 0);
+      expect(post.updatedAt, isNull);
+    });
+
+    test('copies tags into a new modifiable list', () {
+      final source = <String>['桜'];
+      final post = Post.fromSnapshot('post-1', <String, dynamic>{
+        'userId': 'user-1',
+        'tags': source,
+        'createdAt': Timestamp.fromDate(DateTime(2026, 1, 1)),
+      });
+
+      post.tags.add('夜景');
+
+      expect(source, hasLength(1));
+      expect(post.tags, hasLength(2));
+    });
+
     test('defaults caption to an empty string when missing', () {
       final post = Post.fromSnapshot('post-1', <String, dynamic>{
         'userId': 'user-1',
