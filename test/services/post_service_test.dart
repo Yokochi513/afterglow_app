@@ -1,12 +1,21 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+
+/// 圧縮はプラットフォームチャネルに依存し VM テストで実行できないため、
+/// テストでは元のバイト列をそのまま返すダミーに差し替える。
+class _PassthroughImageService extends ImageService {
+  @override
+  Future<Uint8List> compressImage(XFile image) => image.readAsBytes();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +28,11 @@ void main() {
     setUp(() {
       firestore = FakeFirebaseFirestore();
       storage = MockFirebaseStorage();
-      service = PostService(firestore: firestore, storage: storage);
+      service = PostService(
+        firestore: firestore,
+        storage: storage,
+        imageService: _PassthroughImageService(),
+      );
     });
 
     test('createPost uploads images and saves the post document', () async {
