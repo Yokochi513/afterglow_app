@@ -1,7 +1,7 @@
 import 'package:afterglow_app/models/app_user.dart';
 import 'package:afterglow_app/pages/auth/login_page.dart';
 import 'package:afterglow_app/pages/auth/pending_approval_page.dart';
-import 'package:afterglow_app/pages/map_screen.dart';
+import 'package:afterglow_app/pages/main_shell.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 ///
 /// - 未ログイン            → [LoginPage]
 /// - ログイン済 / 未承認    → [PendingApprovalPage]
-/// - ログイン済 / 承認済    → [MapScreen]（アプリ本体）
+/// - ログイン済 / 承認済    → [MainShell]（アプリ本体）
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -41,7 +41,7 @@ class AuthGate extends StatelessWidget {
 
             final appUser = userSnapshot.data;
             if (appUser != null && appUser.approved) {
-              return const MapScreen();
+              return const MainShell();
             }
 
             return PendingApprovalPage(email: user.email ?? '');
