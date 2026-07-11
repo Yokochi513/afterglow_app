@@ -1,15 +1,21 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/image_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 class PostService {
-  PostService({FirebaseFirestore? firestore, FirebaseStorage? storage})
-    : _firestore = firestore ?? FirebaseFirestore.instance,
-      _storage = storage ?? FirebaseStorage.instance;
+  PostService({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+    ImageService? imageService,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance,
+       _imageService = imageService ?? ImageService();
 
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
+  final ImageService _imageService;
 
   static const String postsCollection = 'posts';
 
@@ -23,8 +29,11 @@ class PostService {
             'posts/${post.userId}/${post.id}_$index.jpg',
           );
 
+          // アップロード前に短辺2048px・品質85%へ圧縮する（§8.1 / NFR_02）
+          final compressedBytes = await _imageService.compressImage(imageFile);
+
           final uploadTask = await storageRef.putData(
-            await imageFile.readAsBytes(),
+            compressedBytes,
             SettableMetadata(
               contentType: 'image/jpeg',
               // 投稿画像は不変なので長期キャッシュを許可し、CDN/クライアント
