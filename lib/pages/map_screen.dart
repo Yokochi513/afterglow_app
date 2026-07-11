@@ -1,8 +1,11 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
+import 'package:afterglow_app/pages/release_notes_page.dart';
 import 'package:afterglow_app/services/post_service.dart';
+import 'package:afterglow_app/services/release_note_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
+import 'package:afterglow_app/widgets/release_note_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -27,8 +30,38 @@ class _MapScreenState extends State<MapScreen> {
   final PostService _postService = PostService();
   late final Stream<List<Post>> _postsStream = _postService.getPosts();
 
+  final ReleaseNoteService _releaseNoteService = ReleaseNoteService();
+
   // 既にプリキャッシュ済みの画像URL（再ビルドでの重複プリキャッシュを防ぐ）
   final Set<String> _precachedUrls = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // 更新後の初回起動なら、最初のフレーム描画後にリリースお知らせを自動表示する。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAnnounce());
+  }
+
+  /// 未読のバージョンがあればリリースお知らせダイアログを表示し、既読として記録する。
+  /// アプリの主要動作ではないため、読み込みに失敗しても無視する。
+  Future<void> _maybeAnnounce() async {
+    try {
+      if (!await _releaseNoteService.shouldAnnounce()) return;
+      final note = await _releaseNoteService.announcementNote();
+      if (note != null && mounted) {
+        await ReleaseNoteDialog.show(context, note);
+      }
+      await _releaseNoteService.markAnnounced();
+    } catch (_) {
+      // お知らせの表示失敗はアプリ利用を妨げないため握りつぶす
+    }
+  }
+
+  void _openReleaseNotes() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ReleaseNotesPage()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +69,11 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: const Text('Map'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.campaign_outlined),
+            tooltip: 'お知らせ',
+            onPressed: _openReleaseNotes,
+          ),
           IconButton(
             icon: const Icon(Icons.account_circle),
             tooltip: 'プロフィール',

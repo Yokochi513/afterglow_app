@@ -44,6 +44,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   cached_network_image: ^3.4.1
   firebase_auth: ^6.5.3
+  package_info_plus: ^10.2.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +71,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # リリースお知らせ機能で表示する変更履歴（アプリ内で読み込む）
+  assets:
+    - CHANGELOG.md
 
   # To add assets to your application, add an assets section, like this:
   # assets:
