@@ -86,19 +86,14 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         profileImageUrl: imageUrl,
       );
 
-      messenger.showSnackBar(
-        const SnackBar(content: Text('プロフィールを更新しました')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('プロフィールを更新しました')));
       navigator.pop();
     } catch (_) {
       if (mounted) {
         setState(() => _isSaving = false);
       }
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('更新に失敗しました'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('更新に失敗しました'), backgroundColor: Colors.red),
       );
     }
   }

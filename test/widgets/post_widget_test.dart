@@ -133,9 +133,7 @@ void main() {
 
   testWidgets('hides the delete button for non-owners', (tester) async {
     await tester.pumpWidget(
-      _wrap(
-        _card(_post(), authService: _authServiceFor('another-user')),
-      ),
+      _wrap(_card(_post(), authService: _authServiceFor('another-user'))),
     );
 
     expect(find.byIcon(Icons.delete_outline), findsNothing);
@@ -372,10 +370,9 @@ void main() {
         .collection(PostService.postsCollection)
         .doc('post-1')
         .get();
-    expect(
-      List<String>.from(snapshot.data()?['imageUrls']),
-      const ['https://example.com/2.jpg'],
-    );
+    expect(List<String>.from(snapshot.data()?['imageUrls']), const [
+      'https://example.com/2.jpg',
+    ]);
   });
 
   testWidgets('does not delete the last remaining photo', (tester) async {

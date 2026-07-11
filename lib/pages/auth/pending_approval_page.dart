@@ -28,7 +28,11 @@ class PendingApprovalPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.hourglass_top, size: 64, color: Colors.deepPurple),
+              const Icon(
+                Icons.hourglass_top,
+                size: 64,
+                color: Colors.deepPurple,
+              ),
               const SizedBox(height: 24),
               Text(
                 '管理者の承認待ちです',

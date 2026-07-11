@@ -48,7 +48,10 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('ログインに失敗しました'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('ログインに失敗しました'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) {

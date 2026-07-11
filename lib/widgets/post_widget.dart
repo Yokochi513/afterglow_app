@@ -130,9 +130,9 @@ class _PostCardViewState extends State<PostCardView> {
   /// 残り 1 枚のときは削除を許可しない。
   void _deleteCurrentImage() {
     if (_imageUrls.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('写真は最低1枚必要です')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('写真は最低1枚必要です')));
       return;
     }
 
