@@ -1,6 +1,7 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/pages/release_notes_page.dart';
+import 'package:afterglow_app/services/location_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/release_note_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
@@ -12,7 +13,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  const MapScreen({super.key, LocationService? locationService})
+    : _locationService = locationService;
+
+  /// テストからモックを注入するための位置情報サービス（省略時は既定実装）。
+  final LocationService? _locationService;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -23,7 +28,10 @@ class _MapScreenState extends State<MapScreen> {
 
   static const double _defaultZoom = 14.0;
 
-  // final MapController _mapController = MapController();
+  /// 現在地へ移動したときのズームレベル。
+  static const double _locatedZoom = 16.0;
+
+  final MapController _mapController = MapController();
 
   LatLng _currentPos = _defaultLocation;
 
@@ -31,6 +39,12 @@ class _MapScreenState extends State<MapScreen> {
   late final Stream<List<Post>> _postsStream = _postService.getPosts();
 
   final ReleaseNoteService _releaseNoteService = ReleaseNoteService();
+
+  late final LocationService _locationService =
+      widget._locationService ?? LocationService();
+
+  /// 現在地取得中は true。ボタンの二重押下を防ぎ、スピナーを表示する。
+  bool _isLocating = false;
 
   // 既にプリキャッシュ済みの画像URL（再ビルドでの重複プリキャッシュを防ぐ）
   final Set<String> _precachedUrls = {};
@@ -63,6 +77,42 @@ class _MapScreenState extends State<MapScreen> {
     ).push(MaterialPageRoute<void>(builder: (_) => const ReleaseNotesPage()));
   }
 
+  /// 現在地を取得し、成功したら地図をそこへ移動する。
+  /// 失敗（サービス無効・拒否・タイムアウト等）してもクラッシュせず、
+  /// SnackBar で理由を案内する（永久拒否時は設定を開く導線を出す）。
+  Future<void> _moveToCurrentLocation() async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+
+    final result = await _locationService.getCurrentLocation();
+
+    if (!mounted) return;
+    setState(() => _isLocating = false);
+
+    if (result.isSuccess) {
+      final position = result.position!;
+      final target = LatLng(position.latitude, position.longitude);
+      setState(() => _currentPos = target);
+      _mapController.move(target, _locatedZoom);
+      return;
+    }
+
+    final errorType = result.errorType!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(LocationService.messageFor(errorType)),
+        action: errorType == LocationErrorType.permissionDeniedForever
+            ? SnackBarAction(
+                label: '設定を開く',
+                onPressed: _locationService.openAppSettings,
+              )
+            : null,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -84,6 +134,17 @@ class _MapScreenState extends State<MapScreen> {
             },
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: '現在地へ移動',
+        onPressed: _isLocating ? null : _moveToCurrentLocation,
+        child: _isLocating
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.my_location),
       ),
       body: StreamBuilder<List<Post>>(
         stream: _postsStream,
@@ -109,6 +170,7 @@ class _MapScreenState extends State<MapScreen> {
           }
 
           return FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: _currentPos,
               initialZoom: _defaultZoom,
