@@ -32,12 +32,14 @@ void main() {
         'locationName': '大阪城',
         'tags': <String>['桜', '夜景'],
         'likeCount': 5,
+        'commentCount': 3,
         'updatedAt': Timestamp.fromDate(updatedAt),
       });
 
       expect(post.locationName, '大阪城');
       expect(post.tags, <String>['桜', '夜景']);
       expect(post.likeCount, 5);
+      expect(post.commentCount, 3);
       expect(post.updatedAt, updatedAt);
     });
 
@@ -50,6 +52,7 @@ void main() {
       expect(post.locationName, isNull);
       expect(post.tags, isEmpty);
       expect(post.likeCount, 0);
+      expect(post.commentCount, 0);
       expect(post.updatedAt, isNull);
     });
 
