@@ -40,7 +40,6 @@ class _MainShellState extends State<MainShell> {
     MapScreen(), // 1: Map
     SizedBox.shrink(), // 2: 投稿（ダイアログのため未使用）
     _PlaceholderPage(label: 'Event'), // 3: Event（#15 で実装）
-    ProfilePage(), // 4: Profile
   ];
 
   void _onTabTapped(int index) {
@@ -80,10 +79,6 @@ class _MainShellState extends State<MainShell> {
           BottomNavigationBarItem(
             icon: Icon(Icons.event_outlined),
             label: 'Event',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
           ),
         ],
       ),
