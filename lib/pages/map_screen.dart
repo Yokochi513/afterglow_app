@@ -1,11 +1,11 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/pages/release_notes_page.dart';
 import 'package:afterglow_app/services/location_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/release_note_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
-import 'package:afterglow_app/widgets/post_widget.dart';
 import 'package:afterglow_app/widgets/release_note_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -224,9 +224,10 @@ class _MapScreenState extends State<MapScreen> {
                     height: 48,
                     child: GestureDetector(
                       onTap: () {
-                        showDialog<void>(
-                          context: context,
-                          builder: (context) => PostCardView(post),
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => PostDetailPage(post),
+                          ),
                         );
                       },
                       child: const Icon(

@@ -1,15 +1,20 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
-import 'package:afterglow_app/widgets/post_widget.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Post _post({List<String> imageUrls = const ['https://example.com/1.jpg']}) {
+Post _post({
+  List<String> imageUrls = const ['https://example.com/1.jpg'],
+  List<String> tags = const [],
+  String? locationName,
+}) {
   return Post(
     id: 'post-1',
     userId: 'user-1',
@@ -18,12 +23,12 @@ Post _post({List<String> imageUrls = const ['https://example.com/1.jpg']}) {
     latitude: 35.0,
     longitude: 139.0,
     createdAt: DateTime(2026, 4, 18, 10, 0),
+    tags: tags,
+    locationName: locationName,
   );
 }
 
-Widget _wrap(Widget child) {
-  return MaterialApp(home: Scaffold(body: child));
-}
+Widget _wrap(Widget child) => MaterialApp(home: child);
 
 AuthService _authServiceFor(String? uid) {
   final auth = uid == null
@@ -38,28 +43,42 @@ UserService _userService() => UserService(
   storage: MockFirebaseStorage(),
 );
 
-/// テストで PostCardView を生成するヘルパー。常に UserService を注入する。
-PostCardView _card(
+/// テストで PostDetailPage を生成するヘルパー。常に UserService を注入する。
+PostDetailPage _page(
   Post post, {
   required AuthService authService,
   PostService? postService,
   UserService? userService,
+  Widget? reactionBar,
+  Widget? commentSection,
 }) {
-  return PostCardView(
+  return PostDetailPage(
     post,
     authService: authService,
     postService: postService,
     userService: userService ?? _userService(),
+    reactionBar: reactionBar,
+    commentSection: commentSection,
   );
 }
 
 void main() {
-  // 表示系テストは所有者でない閲覧者として描画し、削除ボタンを介在させない。
+  // 表示系テストは所有者でない閲覧者として描画し、編集/削除ボタンを介在させない。
   final viewerAuthService = _authServiceFor('viewer');
+
+  testWidgets('renders as a full page with a Scaffold', (tester) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: viewerAuthService)),
+    );
+
+    expect(find.byType(Scaffold), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('投稿'), findsOneWidget);
+  });
 
   testWidgets('shows the caption text', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: viewerAuthService)),
+      _wrap(_page(_post(), authService: viewerAuthService)),
     );
 
     expect(find.text('sunset view'), findsOneWidget);
@@ -67,7 +86,7 @@ void main() {
 
   testWidgets('caption field is read only', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: viewerAuthService)),
+      _wrap(_page(_post(), authService: viewerAuthService)),
     );
 
     final textField = tester.widget<TextField>(find.byType(TextField));
@@ -77,7 +96,7 @@ void main() {
   testWidgets('shows the image counter for the first image', (tester) async {
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(
             imageUrls: const [
               'https://example.com/1.jpg',
@@ -97,7 +116,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(
             imageUrls: const [
               'https://example.com/1.jpg',
@@ -115,7 +134,7 @@ void main() {
 
   testWidgets('hides navigation arrows for a single image', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: viewerAuthService)),
+      _wrap(_page(_post(), authService: viewerAuthService)),
     );
 
     expect(find.byIcon(Icons.chevron_left), findsNothing);
@@ -123,9 +142,67 @@ void main() {
     expect(find.text('1 / 1'), findsOneWidget);
   });
 
+  testWidgets('shows the location name and the map preview', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        _page(_post(locationName: '倉敷美観地区'), authService: viewerAuthService),
+      ),
+    );
+
+    expect(find.text('倉敷美観地区'), findsOneWidget);
+    expect(find.byType(FlutterMap), findsOneWidget);
+  });
+
+  testWidgets('shows the map preview even without a location name', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: viewerAuthService)),
+    );
+
+    expect(find.byType(FlutterMap), findsOneWidget);
+  });
+
+  testWidgets('shows the tags as chips', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        _page(_post(tags: const ['夕焼け', '岡山']), authService: viewerAuthService),
+      ),
+    );
+
+    expect(find.widgetWithText(Chip, '#夕焼け'), findsOneWidget);
+    expect(find.widgetWithText(Chip, '#岡山'), findsOneWidget);
+  });
+
+  testWidgets('hides the chip row when the post has no tags', (tester) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: viewerAuthService)),
+    );
+
+    expect(find.byType(Chip), findsNothing);
+  });
+
+  testWidgets('renders the reaction bar and comment section slots', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        _page(
+          _post(),
+          authService: viewerAuthService,
+          reactionBar: const Text('reaction-slot'),
+          commentSection: const Text('comment-slot'),
+        ),
+      ),
+    );
+
+    expect(find.text('reaction-slot'), findsOneWidget);
+    expect(find.text('comment-slot'), findsOneWidget);
+  });
+
   testWidgets('shows the delete button for the post owner', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('user-1'))),
+      _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
     );
 
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
@@ -133,7 +210,7 @@ void main() {
 
   testWidgets('hides the delete button for non-owners', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('another-user'))),
+      _wrap(_page(_post(), authService: _authServiceFor('another-user'))),
     );
 
     expect(find.byIcon(Icons.delete_outline), findsNothing);
@@ -141,7 +218,7 @@ void main() {
 
   testWidgets('hides the delete button when signed out', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor(null))),
+      _wrap(_page(_post(), authService: _authServiceFor(null))),
     );
 
     expect(find.byIcon(Icons.delete_outline), findsNothing);
@@ -163,7 +240,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(imageUrls: const []),
           authService: _authServiceFor('user-1'),
           postService: postService,
@@ -172,11 +249,13 @@ void main() {
     );
 
     await tester.tap(find.byIcon(Icons.delete_outline));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     // 確認ダイアログの「削除」をタップ
     await tester.tap(find.widgetWithText(TextButton, '削除'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     final snapshot = await firestore
         .collection(PostService.postsCollection)
@@ -201,7 +280,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(imageUrls: const []),
           authService: _authServiceFor('user-1'),
           postService: postService,
@@ -210,10 +289,12 @@ void main() {
     );
 
     await tester.tap(find.byIcon(Icons.delete_outline));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.tap(find.widgetWithText(TextButton, 'キャンセル'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     final snapshot = await firestore
         .collection(PostService.postsCollection)
@@ -237,7 +318,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(),
           authService: viewerAuthService,
           userService: userService,
@@ -253,7 +334,7 @@ void main() {
 
   testWidgets('shows the edit button for the post owner', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('user-1'))),
+      _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
     );
 
     expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
@@ -261,7 +342,7 @@ void main() {
 
   testWidgets('hides the edit button for non-owners', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('another-user'))),
+      _wrap(_page(_post(), authService: _authServiceFor('another-user'))),
     );
 
     expect(find.byIcon(Icons.edit_outlined), findsNothing);
@@ -269,7 +350,7 @@ void main() {
 
   testWidgets('makes the caption editable in edit mode', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('user-1'))),
+      _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
     );
 
     expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
@@ -296,7 +377,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(),
           authService: _authServiceFor('user-1'),
           postService: postService,
@@ -311,10 +392,7 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), 'updated caption');
     await tester.pump();
-    final saveButton = find.widgetWithText(TextButton, '保存');
-    await tester.ensureVisible(saveButton);
-    await tester.pump();
-    await tester.tap(saveButton);
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -344,7 +422,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        _card(
+        _page(
           _post(imageUrls: urls),
           authService: _authServiceFor('user-1'),
           postService: postService,
@@ -377,7 +455,7 @@ void main() {
 
   testWidgets('does not delete the last remaining photo', (tester) async {
     await tester.pumpWidget(
-      _wrap(_card(_post(), authService: _authServiceFor('user-1'))),
+      _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
     );
 
     await tester.tap(find.byIcon(Icons.edit_outlined));
