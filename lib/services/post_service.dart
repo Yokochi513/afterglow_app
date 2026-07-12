@@ -19,6 +19,9 @@ class PostService {
 
   static const String postsCollection = 'posts';
 
+  /// フィードの 1 ページあたりの取得件数（§8.2 / NFR_02）。
+  static const int feedPageSize = 20;
+
   Future<bool> createPost(Post post, List<XFile> imageFiles) async {
     try {
       final imageUrls = await Future.wait(
@@ -53,8 +56,9 @@ class PostService {
         'longitude': post.longitude,
         'locationName': post.locationName,
         'tags': post.tags,
-        // 新規投稿のいいね数は必ず 0 から始まる
+        // 新規投稿のいいね数・コメント数は必ず 0 から始まる
         'likeCount': 0,
+        'commentCount': 0,
         'createdAt': Timestamp.fromDate(post.createdAt),
       });
       return true;
@@ -134,6 +138,43 @@ class PostService {
     });
   }
 
+  /// フィードの先頭ページ（最新 [limit] 件）を購読する。新規投稿や編集が
+  /// リアルタイムに反映される。続きは [getPostsPage] で追加取得する（§8.2）。
+  Stream<PostPage> watchPosts({int limit = feedPageSize}) {
+    return _feedQuery(
+      limit: limit,
+    ).snapshots().map((snapshot) => PostPage.fromSnapshot(snapshot, limit));
+  }
+
+  /// [startAfter] の次のページを最新順に取得する。無限スクロールの追加読み込み用。
+  /// [startAfter] には直前のページの [PostPage.lastDocument] を渡す（§8.2）。
+  Future<PostPage> getPostsPage({
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+    int limit = feedPageSize,
+  }) async {
+    final snapshot = await _feedQuery(
+      limit: limit,
+      startAfter: startAfter,
+    ).get();
+    return PostPage.fromSnapshot(snapshot, limit);
+  }
+
+  /// 最新投稿順・[limit] 件のフィード用クエリ。
+  /// `limit` は `startAfterDocument` の後に付ける（先に付けるとカーソル適用前に
+  /// 件数が切られる実装があるため）。
+  Query<Map<String, dynamic>> _feedQuery({
+    required int limit,
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+  }) {
+    Query<Map<String, dynamic>> query = _firestore
+        .collection(postsCollection)
+        .orderBy('createdAt', descending: true);
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+    return query.limit(limit);
+  }
+
   /// 指定ユーザーの投稿を新しい順に購読する。プロフィールの投稿グリッド用。
   Stream<List<Post>> getUserPosts(String userId) {
     return _firestore
@@ -150,4 +191,34 @@ class PostService {
           return posts;
         });
   }
+}
+
+/// フィードの 1 ページ分の取得結果。
+///
+/// [lastDocument] は次ページ取得（`startAfterDocument`）のカーソルで、UI 側は
+/// 中身を解釈せずそのまま [PostService.getPostsPage] に渡す。
+class PostPage {
+  const PostPage({
+    required this.posts,
+    required this.lastDocument,
+    required this.hasMore,
+  });
+
+  factory PostPage.fromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+    int limit,
+  ) {
+    return PostPage(
+      posts: snapshot.docs
+          .map((document) => Post.fromSnapshot(document.id, document.data()))
+          .toList(growable: false),
+      lastDocument: snapshot.docs.isEmpty ? null : snapshot.docs.last,
+      // 取得件数が limit に満たなければ、それが最後のページ。
+      hasMore: snapshot.docs.length == limit,
+    );
+  }
+
+  final List<Post> posts;
+  final DocumentSnapshot<Map<String, dynamic>>? lastDocument;
+  final bool hasMore;
 }

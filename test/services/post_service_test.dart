@@ -439,7 +439,77 @@ void main() {
       );
       expect(updatedAt.isAfter(after.add(const Duration(seconds: 1))), isFalse);
     });
+
+    test(
+      'watchPosts returns the newest posts limited to the page size',
+      () async {
+        await _seedPosts(firestore, count: 5);
+
+        final page = await service.watchPosts(limit: 3).first;
+
+        expect(page.posts.map((post) => post.id).toList(), <String>[
+          'post-4',
+          'post-3',
+          'post-2',
+        ]);
+        expect(page.hasMore, isTrue);
+        expect(page.lastDocument, isNotNull);
+      },
+    );
+
+    test('getPostsPage continues after the given cursor', () async {
+      await _seedPosts(firestore, count: 5);
+
+      final firstPage = await service.getPostsPage(limit: 3);
+      final secondPage = await service.getPostsPage(
+        startAfter: firstPage.lastDocument,
+        limit: 3,
+      );
+
+      expect(secondPage.posts.map((post) => post.id).toList(), <String>[
+        'post-1',
+        'post-0',
+      ]);
+      // 3 件に満たないので最後のページ。
+      expect(secondPage.hasMore, isFalse);
+    });
+
+    test(
+      'getPostsPage reports no more pages when there are no posts',
+      () async {
+        final page = await service.getPostsPage();
+
+        expect(page.posts, isEmpty);
+        expect(page.lastDocument, isNull);
+        expect(page.hasMore, isFalse);
+      },
+    );
   });
+}
+
+/// createdAt が 1 分ずつ新しくなる投稿を `post-0`..`post-{count-1}` で作成する。
+Future<void> _seedPosts(
+  FakeFirebaseFirestore firestore, {
+  required int count,
+}) async {
+  for (var index = 0; index < count; index++) {
+    await firestore
+        .collection(PostService.postsCollection)
+        .doc('post-$index')
+        .set(
+          _toDocument(
+            Post(
+              id: 'post-$index',
+              userId: 'user-1',
+              caption: 'post $index',
+              imageUrls: const [],
+              latitude: 35.0,
+              longitude: 139.0,
+              createdAt: DateTime(2026, 4, 18, 9, index),
+            ),
+          ),
+        );
+  }
 }
 
 Map<String, dynamic> _toDocument(Post post) {
