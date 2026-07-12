@@ -392,7 +392,10 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField), 'updated caption');
     await tester.pump();
-    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    final saveButton = find.widgetWithText(TextButton, '保存');
+    await tester.ensureVisible(saveButton);
+    await tester.pump();
+    await tester.tap(saveButton);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
