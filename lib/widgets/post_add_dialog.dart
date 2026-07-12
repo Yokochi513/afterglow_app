@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
-import 'package:afterglow_app/services/location_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -12,14 +11,7 @@ import 'package:latlong2/latlong.dart';
 class PostAddDialog extends StatefulWidget {
   final LatLng pos;
 
-  const PostAddDialog({
-    super.key,
-    required this.pos,
-    LocationService? locationService,
-  }) : _locationService = locationService;
-
-  /// テストからモックを注入するための位置情報サービス（省略時は既定実装）。
-  final LocationService? _locationService;
+  const PostAddDialog({super.key, required this.pos});
 
   @override
   State<PostAddDialog> createState() => _PostAddDialogState();
@@ -38,17 +30,12 @@ class _PostAddDialogState extends State<PostAddDialog> {
   final PostService postService = PostService();
   final AuthService authService = AuthService();
   final ImageService imageService = ImageService();
-  late final LocationService locationService =
-      widget._locationService ?? LocationService();
 
   final List<XFile> _selectedImages = [];
   final List<Uint8List> _previewImageBytes = [];
   final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
-
-  /// 現在地から場所名フィールドへ座標を補助入力している最中は true。
-  bool _isFetchingLocation = false;
 
   @override
   void dispose() {
@@ -66,28 +53,6 @@ class _PostAddDialogState extends State<PostAddDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
-  }
-
-  /// 現在地を取得し、場所名フィールドへ座標（緯度・経度）を補助入力する。
-  /// 失敗してもクラッシュせず、理由を SnackBar で案内する（任意機能・PS_04）。
-  Future<void> _fillLocationFromGps() async {
-    if (_isFetchingLocation) return;
-    setState(() => _isFetchingLocation = true);
-
-    final result = await locationService.getCurrentLocation();
-
-    if (!mounted) return;
-    setState(() => _isFetchingLocation = false);
-
-    if (result.isSuccess) {
-      final position = result.position!;
-      _locationController.text =
-          '${position.latitude.toStringAsFixed(6)}, '
-          '${position.longitude.toStringAsFixed(6)}';
-      return;
-    }
-
-    _showError(LocationService.messageFor(result.errorType!));
   }
 
   // 複数画像選択
@@ -395,25 +360,9 @@ class _PostAddDialogState extends State<PostAddDialog> {
                         const SizedBox(height: 16),
                         TextField(
                           controller: _locationController,
-                          decoration: InputDecoration(
+                          decoration: const InputDecoration(
                             labelText: '場所名',
-                            border: const OutlineInputBorder(),
-                            helperText: '現在地ボタンで座標を自動入力できます',
-                            suffixIcon: IconButton(
-                              tooltip: '現在地の座標を入力',
-                              onPressed: _isFetchingLocation
-                                  ? null
-                                  : _fillLocationFromGps,
-                              icon: _isFetchingLocation
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.my_location),
-                            ),
+                            border: OutlineInputBorder(),
                           ),
                         ),
                         const SizedBox(height: 16),

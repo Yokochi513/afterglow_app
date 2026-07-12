@@ -31,9 +31,16 @@ class _MapScreenState extends State<MapScreen> {
   /// 現在地へ移動したときのズームレベル。
   static const double _locatedZoom = 16.0;
 
+  /// 現在地マーカーの外枠サイズ。青丸（18px）＋影のはみ出し分の余白。
+  static const double _myLocationMarkerSize = 28.0;
+
   final MapController _mapController = MapController();
 
   LatLng _currentPos = _defaultLocation;
+
+  /// GPS で実際に取得できた現在地。未取得の間は null で、青丸を描画しない。
+  /// 地図タップで動く [_currentPos] とは別に保持する。
+  LatLng? _myLocation;
 
   final PostService _postService = PostService();
   late final Stream<List<Post>> _postsStream = _postService.getPosts();
@@ -92,7 +99,10 @@ class _MapScreenState extends State<MapScreen> {
     if (result.isSuccess) {
       final position = result.position!;
       final target = LatLng(position.latitude, position.longitude);
-      setState(() => _currentPos = target);
+      setState(() {
+        _currentPos = target;
+        _myLocation = target;
+      });
       _mapController.move(target, _locatedZoom);
       return;
     }
@@ -192,6 +202,20 @@ class _MapScreenState extends State<MapScreen> {
                 urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 userAgentPackageName: 'com.afterglow_app.app',
               ),
+              // 現在地の青丸。投稿ピンより先に描画して背面に置き、ピンを隠さない。
+              if (_myLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _myLocation!,
+                      width: _myLocationMarkerSize,
+                      height: _myLocationMarkerSize,
+                      // 地図はどこをタップしても投稿できる設計のため、青丸が
+                      // タップを吸って「今いる場所に投稿」を塞がないようにする。
+                      child: const IgnorePointer(child: _MyLocationDot()),
+                    ),
+                  ],
+                ),
               MarkerLayer(
                 markers: posts.map((post) {
                   return Marker(
@@ -217,6 +241,36 @@ class _MapScreenState extends State<MapScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// 現在地を示す青丸（Google Maps 風）。白リングと影で地図タイルから浮かせる。
+/// 投稿ピン（赤・40px）より小さくし、地図の主役を投稿ピンのまま保つ。
+class _MyLocationDot extends StatelessWidget {
+  const _MyLocationDot();
+
+  static const double _diameter = 18.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: _diameter,
+        height: _diameter,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A73E8),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
       ),
     );
   }
