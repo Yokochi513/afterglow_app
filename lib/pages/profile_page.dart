@@ -3,6 +3,7 @@ import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/pages/profile_edit_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -196,7 +197,10 @@ class _ProfileBody extends StatelessWidget {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => PostDetailPage(post),
+                          builder: (_) => PostDetailPage(
+                            post,
+                            commentSection: CommentSection(post: post),
+                          ),
                         ),
                       );
                     },
