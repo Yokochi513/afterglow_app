@@ -3,7 +3,9 @@ rules_version = '2';
 // =====================================================================
 // 認証ベースのセキュリティルール（Phase1 認証基盤）
 //
-// - 投稿の読み書きは「承認済み(approved)」ユーザーのみ
+// - 投稿・アルバム・イベントの読み書きは「承認済み(approved)」ユーザーのみ。
+//   更新・削除は所有者（userId / ownerId / organizerId）または管理者に限る
+// - 通知は受信者本人の読み取りのみ。書き込みは Cloud Functions / Admin SDK が行う
 // - users ドキュメントは本人のみ作成・更新可。ただし approved / role は
 //   本人が変更できない（承認は Cloud Functions / 管理者のみ）
 // - registrationApprovals / mail はクライアントから一切アクセス不可
@@ -74,6 +76,38 @@ service cloud.firestore {
         allow read: if isApproved();
         allow write: if isApproved() && request.auth.uid == reactionUserId;
       }
+    }
+
+    // アルバム（§3.6）
+    match /albums/{albumId} {
+      allow read: if isApproved();
+      allow create: if isApproved()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isApproved()
+        && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // イベント（§3.7）
+    match /events/{eventId} {
+      allow read: if isApproved();
+      allow create: if isApproved()
+        && request.resource.data.organizerId == request.auth.uid;
+      allow update, delete: if isApproved()
+        && (resource.data.organizerId == request.auth.uid || isAdmin());
+
+      // 参加表明（1ユーザー1ドキュメント・§3.8）
+      match /participants/{participantId} {
+        allow read: if isApproved();
+        allow write: if isApproved() && request.auth.uid == participantId;
+      }
+    }
+
+    // 通知（§3.9）: 受信者本人の読み取りのみ。
+    // 作成・更新・削除は Functions / Admin SDK が行うためクライアントには許可しない
+    match /notifications/{notificationId} {
+      allow read: if isApproved()
+        && resource.data.recipientId == request.auth.uid;
+      allow write: if false;
     }
 
     // 承認トークン: クライアントからは一切アクセス不可（Functions のみ）
