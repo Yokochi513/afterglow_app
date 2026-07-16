@@ -1,10 +1,13 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
+import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
+import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:afterglow_app/widgets/post_card.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,6 +45,11 @@ void main() {
       home: FeedPage(
         postService: PostService(firestore: firestore, storage: storage),
         userService: UserService(firestore: firestore, storage: storage),
+        authService: AuthService(
+          auth: MockFirebaseAuth(),
+          firestore: firestore,
+        ),
+        reactionService: ReactionService(firestore: firestore),
       ),
     );
   }

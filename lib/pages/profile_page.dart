@@ -6,6 +6,7 @@ import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -199,6 +200,7 @@ class _ProfileBody extends StatelessWidget {
                         MaterialPageRoute<void>(
                           builder: (_) => PostDetailPage(
                             post,
+                            reactionBar: ReactionBar(post: post),
                             commentSection: CommentSection(post: post),
                           ),
                         ),

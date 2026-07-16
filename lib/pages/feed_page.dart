@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
+import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
+import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/post_card.dart';
+import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:flutter/material.dart';
 
 /// フィードページ（FR_02 / §5.3）。
@@ -14,11 +17,21 @@ import 'package:flutter/material.dart';
 /// Stream で購読して新規投稿をリアルタイムに反映し、スクロール末端で
 /// `startAfterDocument` による追加取得を行う（§8.2 / NFR_02）。
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key, this.postService, this.userService});
+  const FeedPage({
+    super.key,
+    this.postService,
+    this.userService,
+    this.authService,
+    this.reactionService,
+  });
 
   /// テスト時に差し替え可能。null の場合はビルド時に既定インスタンスを生成する。
   final PostService? postService;
   final UserService? userService;
+
+  /// [ReactionBar] へ渡す。テスト時に差し替え可能。
+  final AuthService? authService;
+  final ReactionService? reactionService;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
@@ -126,8 +139,15 @@ class _FeedPageState extends State<FeedPage> {
   void _openDetail(Post post) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) =>
-            PostDetailPage(post, commentSection: CommentSection(post: post)),
+        builder: (context) => PostDetailPage(
+          post,
+          reactionBar: ReactionBar(
+            post: post,
+            authService: widget.authService,
+            reactionService: widget.reactionService,
+          ),
+          commentSection: CommentSection(post: post),
+        ),
       ),
     );
   }
@@ -172,6 +192,8 @@ class _FeedPageState extends State<FeedPage> {
           post,
           key: ValueKey(post.id),
           userService: widget.userService,
+          authService: widget.authService,
+          reactionService: widget.reactionService,
           onTap: () => _openDetail(post),
         );
       },
