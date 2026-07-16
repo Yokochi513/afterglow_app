@@ -4,6 +4,7 @@ import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 
@@ -123,9 +124,12 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   void _openDetail(Post post) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (context) => PostDetailPage(post)));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) =>
+            PostDetailPage(post, commentSection: CommentSection(post: post)),
+      ),
+    );
   }
 
   @override
