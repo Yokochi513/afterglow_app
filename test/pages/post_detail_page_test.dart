@@ -3,6 +3,7 @@ import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/post_detail_view.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
@@ -65,6 +66,36 @@ PostDetailPage _page(
 void main() {
   // 表示系テストは所有者でない閲覧者として描画し、編集/削除ボタンを介在させない。
   final viewerAuthService = _authServiceFor('viewer');
+
+  /// テスト用に画面サイズを変え、後片付けまで面倒を見る。
+  Future<void> setScreenSize(WidgetTester tester, Size size) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  testWidgets('ワイド画面では写真と情報の 2 カラムになる', (tester) async {
+    await setScreenSize(tester, const Size(1400, 1000));
+
+    await tester.pumpWidget(
+      _wrap(_page(_post(locationName: '岡山城'), authService: viewerAuthService)),
+    );
+
+    expect(find.byKey(PostDetailView.twoColumnKey), findsOneWidget);
+    expect(find.byKey(PostDetailView.singleColumnKey), findsNothing);
+  });
+
+  testWidgets('狭い画面では 1 カラムに戻る', (tester) async {
+    await setScreenSize(tester, const Size(400, 900));
+
+    await tester.pumpWidget(
+      _wrap(_page(_post(locationName: '岡山城'), authService: viewerAuthService)),
+    );
+
+    expect(find.byKey(PostDetailView.singleColumnKey), findsOneWidget);
+    expect(find.byKey(PostDetailView.twoColumnKey), findsNothing);
+  });
 
   testWidgets('renders as a full page with a Scaffold', (tester) async {
     await tester.pumpWidget(

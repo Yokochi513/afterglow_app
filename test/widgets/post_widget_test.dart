@@ -7,10 +7,12 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 詳細の中身（[PostDetailView]）のふるまいは post_detail_page_test.dart で網羅する。
-/// ここでは Dialog として体裁を整えて表示できることだけを確認する。
+/// ここでは Dialog としての体裁と、地図向けサマリー（[PostViewMode.summary]）
+/// としての出し分けを確認する。
 
 Post _post() {
   return Post(
@@ -31,7 +33,7 @@ AuthService _authServiceFor(String uid) {
   );
 }
 
-Widget _dialog(String viewerUid) {
+Widget _dialog(String viewerUid, {VoidCallback? onOpenDetail}) {
   return MaterialApp(
     home: Scaffold(
       body: PostCardView(
@@ -41,6 +43,9 @@ Widget _dialog(String viewerUid) {
           firestore: FakeFirebaseFirestore(),
           storage: MockFirebaseStorage(),
         ),
+        reactionBar: const Text('reaction-bar'),
+        commentSection: const Text('comment-section'),
+        onOpenDetail: onOpenDetail,
       ),
     ),
   );
@@ -55,10 +60,39 @@ void main() {
     expect(find.text('sunset view'), findsOneWidget);
   });
 
-  testWidgets('shows the owner actions inside the dialog', (tester) async {
+  testWidgets('サマリーはいいねとコメントを出す', (tester) async {
+    await tester.pumpWidget(_dialog('viewer'));
+
+    expect(find.text('reaction-bar'), findsOneWidget);
+    expect(find.text('comment-section'), findsOneWidget);
+  });
+
+  testWidgets('サマリーは地図ミニプレビューを出さない', (tester) async {
+    await tester.pumpWidget(_dialog('viewer'));
+
+    expect(find.byType(FlutterMap), findsNothing);
+  });
+
+  testWidgets('サマリーは自投稿でも編集・削除を出さない', (tester) async {
     await tester.pumpWidget(_dialog('user-1'));
 
-    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(find.byIcon(Icons.delete_outline), findsNothing);
+  });
+
+  testWidgets('「詳細を見る」で詳細ページへの導線を出す', (tester) async {
+    var opened = false;
+    await tester.pumpWidget(
+      _dialog('viewer', onOpenDetail: () => opened = true),
+    );
+
+    await tester.tap(find.text('詳細を見る'));
+    expect(opened, isTrue);
+  });
+
+  testWidgets('onOpenDetail 未指定なら導線を出さない', (tester) async {
+    await tester.pumpWidget(_dialog('viewer'));
+
+    expect(find.text('詳細を見る'), findsNothing);
   });
 }

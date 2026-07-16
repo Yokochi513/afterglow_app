@@ -9,21 +9,43 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+/// [PostDetailView] の表示モード。呼び出し元の文脈に応じて中身を出し分ける。
+enum PostViewMode {
+  /// 地図のピン押下から開く軽量表示。
+  ///
+  /// 「どんな写真が撮られているか」「コメントは」「いいね数は」を素早く
+  /// 確認するためのもの。地図の上で開くため場所名と地図ミニプレビューは
+  /// 冗長なので出さず、編集/削除も [full] 側に任せる。
+  summary,
+
+  /// フィード・プロフィールから開く詳細表示。
+  ///
+  /// 気に入った写真が「どこで撮られたのか」まで見られるのが利点なので、
+  /// 場所名と地図ミニプレビューを出す。自投稿なら編集/削除もできる。
+  full,
+}
+
 /// 投稿詳細の中身（FR_04 / §5.6）。
 ///
-/// 画像ギャラリー・投稿者・キャプション・タグ・場所名 + 地図ミニプレビューを
-/// 表示し、自投稿のときだけ編集/削除メニューを出す（PS_08）。
+/// 画像ギャラリー・投稿者・キャプション・タグを表示し、[mode] に応じて
+/// 場所名 + 地図ミニプレビューと編集/削除メニュー（PS_08）を出し分ける。
 /// リアクションバー（#13）とコメントセクション（#12）は [reactionBar] /
 /// [commentSection] に差し込む。
 ///
 /// 表示器（Dialog / フルページ）を持たないため、地図のマーカータップは
-/// [PostCardView] が Dialog として、フィード・プロフィールからは
-/// [PostDetailPage] がフルページとして、それぞれこのウィジェットを包む。
+/// [PostCardView] が Dialog + [PostViewMode.summary] で、フィード・プロフィール
+/// からは [PostDetailPage] がフルページ + [PostViewMode.full] で、それぞれ
+/// このウィジェットを包む。
 /// 高さが有界なコンテナに置くこと（内部で [Stack] を使う）。
 class PostDetailView extends StatefulWidget {
+  /// レイアウトの切り替わりをテストから確認するためのキー。
+  static const Key singleColumnKey = ValueKey('post-detail-single-column');
+  static const Key twoColumnKey = ValueKey('post-detail-two-column');
+
   const PostDetailView(
     this.post, {
     super.key,
+    this.mode = PostViewMode.full,
     this.authService,
     this.postService,
     this.userService,
@@ -32,6 +54,9 @@ class PostDetailView extends StatefulWidget {
   });
 
   final Post post;
+
+  /// 表示モード。既定は全部入りの [PostViewMode.full]。
+  final PostViewMode mode;
 
   /// テスト時に差し替え可能。null の場合はビルド時に既定インスタンスを生成する。
   final AuthService? authService;
@@ -53,6 +78,14 @@ class _PostDetailViewState extends State<PostDetailView> {
   static const double _mapPreviewHeight = 160;
   static const double _mapPreviewZoom = 15;
 
+  /// [PostViewMode.full] で 2 カラムに切り替える幅。これ未満は 1 カラム。
+  static const double _twoColumnBreakpoint = 900;
+
+  /// 2 カラム時の左右の幅の比と間隔。写真を主役にするため左を広く取る。
+  static const int _galleryColumnFlex = 3;
+  static const int _infoColumnFlex = 2;
+  static const double _columnGap = 24;
+
   final PageController _pageController = PageController();
 
   late final AuthService _authService = widget.authService ?? AuthService();
@@ -66,6 +99,10 @@ class _PostDetailViewState extends State<PostDetailView> {
   bool get _isOwner =>
       _authService.currentUserId != null &&
       _authService.currentUserId == widget.post.userId;
+
+  /// 編集/削除メニューを出すか。自投稿でも [PostViewMode.summary] では出さず、
+  /// 編集導線は詳細ページ側に一本化する。
+  bool get _canEdit => _isOwner && widget.mode == PostViewMode.full;
 
   /// 表示・編集中の画像一覧。編集で削除すると要素が減る。
   late List<String> _imageUrls = List<String>.of(widget.post.imageUrls);
@@ -339,11 +376,18 @@ class _PostDetailViewState extends State<PostDetailView> {
   }
 
   /// 画像ギャラリー（PageView）。編集中は現在の画像を削除できる。
+  ///
+  /// [PostViewMode.summary] は Dialog 内のカードとして枠線を付けるが、
+  /// [PostViewMode.full] は写真自体が主役なので枠線を外す。
   Widget _buildGallery() {
+    final isSummary = widget.mode == PostViewMode.summary;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400, width: 2),
+        border: isSummary
+            ? Border.all(color: Colors.grey.shade400, width: 2)
+            : null,
         borderRadius: BorderRadius.circular(12),
       ),
       child: AspectRatio(
@@ -548,6 +592,123 @@ class _PostDetailViewState extends State<PostDetailView> {
     );
   }
 
+  /// 投稿者情報 + 所有者向け操作。
+  Widget _buildAuthorRow() {
+    return Row(
+      children: [
+        Expanded(child: _buildAuthorHeader()),
+        if (_canEdit) ..._buildOwnerActions(),
+      ],
+    );
+  }
+
+  /// 編集中だけ出す注意書き。写真の追加は投稿時のみ。
+  Widget _buildEditHint() {
+    return Text(
+      '写真の追加はできません。不要な写真は削除してください。',
+      style: Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+    );
+  }
+
+  Widget _buildCaptionField() {
+    return TextField(
+      controller: _captionController,
+      readOnly: !_isEditing,
+      decoration: InputDecoration(
+        labelText: '説明文',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        border: const OutlineInputBorder(),
+        filled: _isEditing,
+      ),
+      maxLines: null,
+      minLines: 3,
+    );
+  }
+
+  /// 1 カラム（Dialog のサマリー・モバイルの詳細ページ）。
+  Widget _buildSingleColumn() {
+    return Column(
+      key: PostDetailView.singleColumnKey,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildAuthorRow(),
+        const SizedBox(height: 12),
+        _buildGallery(),
+        if (_isEditing) ...[const SizedBox(height: 8), _buildEditHint()],
+        if (widget.reactionBar != null) ...[
+          const SizedBox(height: 8),
+          widget.reactionBar!,
+        ],
+        const SizedBox(height: 20),
+        _buildCaptionField(),
+        if (widget.post.tags.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildTags(),
+        ],
+        if (widget.mode == PostViewMode.full) ...[
+          const SizedBox(height: 20),
+          _buildLocation(),
+        ],
+        if (widget.commentSection != null) ...[
+          const SizedBox(height: 24),
+          widget.commentSection!,
+        ],
+      ],
+    );
+  }
+
+  /// 2 カラム（ワイド画面の詳細ページ）。左に写真を大きく、右に情報を縦に積む。
+  /// ページ全体で 1 つのスクロールを共有する。
+  Widget _buildTwoColumn() {
+    return Row(
+      key: PostDetailView.twoColumnKey,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: _galleryColumnFlex,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildGallery(),
+              if (_isEditing) ...[const SizedBox(height: 8), _buildEditHint()],
+            ],
+          ),
+        ),
+        const SizedBox(width: _columnGap),
+        Expanded(
+          flex: _infoColumnFlex,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAuthorRow(),
+              const SizedBox(height: 12),
+              _buildCaptionField(),
+              if (widget.post.tags.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildTags(),
+              ],
+              if (widget.reactionBar != null) ...[
+                const SizedBox(height: 8),
+                widget.reactionBar!,
+              ],
+              const SizedBox(height: 20),
+              _buildLocation(),
+              if (widget.commentSection != null) ...[
+                const SizedBox(height: 24),
+                widget.commentSection!,
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isBusy = _isDeleting || _isSaving;
@@ -556,58 +717,18 @@ class _PostDetailViewState extends State<PostDetailView> {
       children: [
         AbsorbPointer(
           absorbing: isBusy,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 投稿者情報 + 所有者向け操作
-                Row(
-                  children: [
-                    Expanded(child: _buildAuthorHeader()),
-                    if (_isOwner) ..._buildOwnerActions(),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildGallery(),
-                if (_isEditing) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    '写真の追加はできません。不要な写真は削除してください。',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-                if (widget.reactionBar != null) ...[
-                  const SizedBox(height: 8),
-                  widget.reactionBar!,
-                ],
-                const SizedBox(height: 20),
-                TextField(
-                  controller: _captionController,
-                  readOnly: !_isEditing,
-                  decoration: InputDecoration(
-                    labelText: '説明文',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    border: const OutlineInputBorder(),
-                    filled: _isEditing,
-                  ),
-                  maxLines: null,
-                  minLines: 3,
-                ),
-                if (widget.post.tags.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  _buildTags(),
-                ],
-                const SizedBox(height: 20),
-                _buildLocation(),
-                if (widget.commentSection != null) ...[
-                  const SizedBox(height: 24),
-                  widget.commentSection!,
-                ],
-              ],
-            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // 2 カラムは写真を大きく見せられる幅があるときの詳細ページだけ。
+              // Dialog のサマリーは常に 1 カラム。
+              final isTwoColumn =
+                  widget.mode == PostViewMode.full &&
+                  constraints.maxWidth >= _twoColumnBreakpoint;
+
+              return SingleChildScrollView(
+                child: isTwoColumn ? _buildTwoColumn() : _buildSingleColumn(),
+              );
+            },
           ),
         ),
         if (_isDeleting) _busyOverlay('削除中...'),
