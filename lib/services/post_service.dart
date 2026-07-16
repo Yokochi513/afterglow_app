@@ -1,17 +1,26 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/image_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 class PostService {
-  PostService({FirebaseFirestore? firestore, FirebaseStorage? storage})
-    : _firestore = firestore ?? FirebaseFirestore.instance,
-      _storage = storage ?? FirebaseStorage.instance;
+  PostService({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+    ImageService? imageService,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance,
+       _imageService = imageService ?? ImageService();
 
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
+  final ImageService _imageService;
 
   static const String postsCollection = 'posts';
+
+  /// フィードの 1 ページあたりの取得件数（§8.2 / NFR_02）。
+  static const int feedPageSize = 20;
 
   Future<bool> createPost(Post post, List<XFile> imageFiles) async {
     try {
@@ -23,8 +32,11 @@ class PostService {
             'posts/${post.userId}/${post.id}_$index.jpg',
           );
 
+          // アップロード前に短辺2048px・品質85%へ圧縮する（§8.1 / NFR_02）
+          final compressedBytes = await _imageService.compressImage(imageFile);
+
           final uploadTask = await storageRef.putData(
-            await imageFile.readAsBytes(),
+            compressedBytes,
             SettableMetadata(
               contentType: 'image/jpeg',
               // 投稿画像は不変なので長期キャッシュを許可し、CDN/クライアント
@@ -42,6 +54,11 @@ class PostService {
         'imageUrls': imageUrls,
         'latitude': post.latitude,
         'longitude': post.longitude,
+        'locationName': post.locationName,
+        'tags': post.tags,
+        // 新規投稿のいいね数・コメント数は必ず 0 から始まる
+        'likeCount': 0,
+        'commentCount': 0,
         'createdAt': Timestamp.fromDate(post.createdAt),
       });
       return true;
@@ -67,6 +84,8 @@ class PostService {
       await _firestore.collection(postsCollection).doc(post.id).update({
         'caption': caption,
         'imageUrls': imageUrls,
+        // 編集日時を記録する（PS_08）
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
     } catch (_) {
       return false;
@@ -119,6 +138,62 @@ class PostService {
     });
   }
 
+  /// フィードの先頭ページ（最新 [limit] 件）を購読する。新規投稿や編集が
+  /// リアルタイムに反映される。続きは [getPostsPage] で追加取得する（§8.2）。
+  Stream<PostPage> watchPosts({int limit = feedPageSize}) {
+    return _feedQuery(
+      limit: limit,
+    ).snapshots().map((snapshot) => PostPage.fromSnapshot(snapshot, limit));
+  }
+
+  /// [startAfter] の次のページを最新順に取得する。無限スクロールの追加読み込み用。
+  /// [startAfter] には直前のページの [PostPage.lastDocument] を渡す（§8.2）。
+  Future<PostPage> getPostsPage({
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+    int limit = feedPageSize,
+  }) async {
+    final snapshot = await _feedQuery(
+      limit: limit,
+      startAfter: startAfter,
+    ).get();
+    return PostPage.fromSnapshot(snapshot, limit);
+  }
+
+  /// 最新投稿順・[limit] 件のフィード用クエリ。
+  /// `limit` は `startAfterDocument` の後に付ける（先に付けるとカーソル適用前に
+  /// 件数が切られる実装があるため）。
+  Query<Map<String, dynamic>> _feedQuery({
+    required int limit,
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+  }) {
+    Query<Map<String, dynamic>> query = _firestore
+        .collection(postsCollection)
+        .orderBy('createdAt', descending: true);
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+    return query.limit(limit);
+  }
+
+  /// [postIds] の投稿をその並び順のまま取得する。アルバム詳細のグリッド用
+  /// （PS_02）。`whereIn` は 1 クエリ 10 件までの制約があるため、ID 指定で
+  /// 個別に引いて件数制限を受けないようにしている。
+  /// 既に削除された投稿は結果から除外する。
+  Future<List<Post>> getPostsByIds(List<String> postIds) async {
+    if (postIds.isEmpty) {
+      return const [];
+    }
+
+    final documents = await Future.wait(
+      postIds.map((id) => _firestore.collection(postsCollection).doc(id).get()),
+    );
+
+    return documents
+        .where((document) => document.exists)
+        .map((document) => Post.fromSnapshot(document.id, document.data()!))
+        .toList(growable: false);
+  }
+
   /// 指定ユーザーの投稿を新しい順に購読する。プロフィールの投稿グリッド用。
   Stream<List<Post>> getUserPosts(String userId) {
     return _firestore
@@ -135,4 +210,34 @@ class PostService {
           return posts;
         });
   }
+}
+
+/// フィードの 1 ページ分の取得結果。
+///
+/// [lastDocument] は次ページ取得（`startAfterDocument`）のカーソルで、UI 側は
+/// 中身を解釈せずそのまま [PostService.getPostsPage] に渡す。
+class PostPage {
+  const PostPage({
+    required this.posts,
+    required this.lastDocument,
+    required this.hasMore,
+  });
+
+  factory PostPage.fromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+    int limit,
+  ) {
+    return PostPage(
+      posts: snapshot.docs
+          .map((document) => Post.fromSnapshot(document.id, document.data()))
+          .toList(growable: false),
+      lastDocument: snapshot.docs.isEmpty ? null : snapshot.docs.last,
+      // 取得件数が limit に満たなければ、それが最後のページ。
+      hasMore: snapshot.docs.length == limit,
+    );
+  }
+
+  final List<Post> posts;
+  final DocumentSnapshot<Map<String, dynamic>>? lastDocument;
+  final bool hasMore;
 }

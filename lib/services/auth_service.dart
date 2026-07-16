@@ -43,10 +43,7 @@ class AuthService {
       createdAt: DateTime.now(),
     );
 
-    await _firestore
-        .collection(usersCollection)
-        .doc(uid)
-        .set(user.toMap());
+    await _firestore.collection(usersCollection).doc(uid).set(user.toMap());
 
     return credential;
   }

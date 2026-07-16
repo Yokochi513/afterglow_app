@@ -1,35 +1,44 @@
 import 'package:afterglow_app/models/app_user.dart';
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/pages/profile_edit_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
-import 'package:afterglow_app/widgets/post_widget.dart';
+import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-/// ログイン中ユーザーのプロフィール画面。
+/// ユーザーのプロフィール画面（FR_06 / §5.8）。
 ///
-/// プロフィール画像・ユーザー名・自己紹介・投稿グリッドを表示し、
-/// 編集・ログアウトを行える（FR_06）。
+/// プロフィール画像・ユーザー名・自己紹介・投稿グリッドを表示する。
+/// [userId] 省略時はログイン中ユーザー自身のプロフィールとなり、編集・
+/// ログアウトも行える。他ユーザーを表示する場合は閲覧のみ。
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, this.userId});
+
+  /// 表示するユーザーの UID。null ならログイン中ユーザー。
+  final String? userId;
 
   @override
   Widget build(BuildContext context) {
     final authService = AuthService();
     final userService = UserService();
-    final uid = authService.currentUserId;
+    final currentUid = authService.currentUserId;
+    final uid = userId ?? currentUid;
+    final isMe = uid != null && uid == currentUid;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('プロフィール'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'ログアウト',
-            onPressed: () => _confirmSignOut(context, authService),
-          ),
+          if (isMe)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'ログアウト',
+              onPressed: () => _confirmSignOut(context, authService),
+            ),
         ],
       ),
       body: uid == null
@@ -46,7 +55,7 @@ class ProfilePage extends StatelessWidget {
                   return const Center(child: Text('プロフィールが見つかりませんでした'));
                 }
 
-                return _ProfileBody(user: user);
+                return _ProfileBody(user: user, isMe: isMe);
               },
             ),
     );
@@ -87,9 +96,12 @@ class ProfilePage extends StatelessWidget {
 }
 
 class _ProfileBody extends StatelessWidget {
-  const _ProfileBody({required this.user});
+  const _ProfileBody({required this.user, required this.isMe});
 
   final AppUser user;
+
+  /// 自分のプロフィールなら編集ボタンを表示する（§5.8）。
+  final bool isMe;
 
   @override
   Widget build(BuildContext context) {
@@ -124,18 +136,20 @@ class _ProfileBody extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(user.bio, textAlign: TextAlign.center),
                 ],
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ProfileEditPage(user: user),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.edit),
-                  label: const Text('プロフィールを編集'),
-                ),
+                if (isMe) ...[
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ProfileEditPage(user: user),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('プロフィールを編集'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -182,9 +196,14 @@ class _ProfileBody extends StatelessWidget {
                       : null;
                   return GestureDetector(
                     onTap: () {
-                      showDialog<void>(
-                        context: context,
-                        builder: (context) => PostCardView(post),
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => PostDetailPage(
+                            post,
+                            reactionBar: ReactionBar(post: post),
+                            commentSection: CommentSection(post: post),
+                          ),
+                        ),
                       );
                     },
                     child: thumbnailUrl == null

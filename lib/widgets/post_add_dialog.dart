@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,39 +18,84 @@ class PostAddDialog extends StatefulWidget {
 }
 
 class _PostAddDialogState extends State<PostAddDialog> {
+  /// 投稿画像の枚数上限（PS_01 / NFR_02）。
+  static const int _maxImages = 10;
+
   final TextEditingController _captionController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _tagController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
   final PageController _pageController = PageController();
 
   final PostService postService = PostService();
   final AuthService authService = AuthService();
+  final ImageService imageService = ImageService();
 
   final List<XFile> _selectedImages = [];
   final List<Uint8List> _previewImageBytes = [];
+  final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
 
   @override
   void dispose() {
     _captionController.dispose();
+    _locationController.dispose();
+    _tagController.dispose();
     _pageController.dispose();
     super.dispose();
   }
 
+  void _showError(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
   // 複数画像選択
   Future<void> pickAndUploadImages() async {
-    // ピック時にリサイズ・再圧縮し、アップロード/ダウンロードを軽量化する
-    final List<XFile> picked = await _imagePicker.pickMultiImage(
-      maxWidth: 1600,
-      maxHeight: 1600,
-      imageQuality: 85,
-    );
+    if (_selectedImages.length >= _maxImages) {
+      _showError('画像は最大$_maxImages枚までです');
+      return;
+    }
+
+    // 圧縮は投稿時に flutter_image_compress で行うため、ここでは等倍で取得する
+    final List<XFile> picked = await _imagePicker.pickMultiImage();
     if (picked.isEmpty) {
       return;
     }
 
+    // 拡張子チェック（NFR_02）
+    final allowed = <XFile>[];
+    var hasRejected = false;
+    for (final image in picked) {
+      if (imageService.isAllowedExtension(image.name)) {
+        allowed.add(image);
+      } else {
+        hasRejected = true;
+      }
+    }
+    if (hasRejected) {
+      _showError('JPEG / PNG / BMP / HEIC 形式の画像のみ選択できます');
+    }
+    if (allowed.isEmpty) {
+      return;
+    }
+
+    // 枚数上限チェック（PS_01）
+    final remaining = _maxImages - _selectedImages.length;
+    final toAdd = allowed.length > remaining
+        ? allowed.sublist(0, remaining)
+        : allowed;
+    if (allowed.length > remaining) {
+      _showError('画像は最大$_maxImages枚までです');
+    }
+
     final previewBytes = await Future.wait(
-      picked.map((image) => image.readAsBytes()),
+      toAdd.map((image) => image.readAsBytes()),
     );
 
     if (!mounted) {
@@ -57,8 +103,37 @@ class _PostAddDialogState extends State<PostAddDialog> {
     }
 
     setState(() {
-      _selectedImages.addAll(picked);
+      _selectedImages.addAll(toAdd);
       _previewImageBytes.addAll(previewBytes);
+    });
+  }
+
+  // タグ入力（`#タグ名` を空白・カンマ区切りで複数追加）— PS_03
+  void _addTagsFromInput(String raw) {
+    final tokens = raw.split(RegExp(r'[\s,、]+'));
+    final added = <String>[];
+    for (var token in tokens) {
+      token = token.trim();
+      if (token.startsWith('#')) {
+        token = token.substring(1).trim();
+      }
+      if (token.isNotEmpty &&
+          !_tags.contains(token) &&
+          !added.contains(token)) {
+        added.add(token);
+      }
+    }
+    if (added.isNotEmpty) {
+      setState(() {
+        _tags.addAll(added);
+      });
+    }
+    _tagController.clear();
+  }
+
+  void _removeTag(String tag) {
+    setState(() {
+      _tags.remove(tag);
     });
   }
 
@@ -257,7 +332,22 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                   ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 8),
+                        // 画像枚数の表示と追加（PS_01）
+                        Row(
+                          children: [
+                            TextButton.icon(
+                              onPressed: _selectedImages.length >= _maxImages
+                                  ? null
+                                  : pickAndUploadImages,
+                              icon: const Icon(Icons.add_photo_alternate),
+                              label: const Text('画像を追加'),
+                            ),
+                            const Spacer(),
+                            Text('${_selectedImages.length} / $_maxImages'),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         TextField(
                           controller: _captionController,
                           decoration: const InputDecoration(
@@ -267,11 +357,46 @@ class _PostAddDialogState extends State<PostAddDialog> {
                           maxLines: null,
                           minLines: 3,
                         ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _locationController,
+                          decoration: const InputDecoration(
+                            labelText: '場所名',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // タグ入力（`#タグ名` で複数入力・個別削除）— PS_03
+                        TextField(
+                          controller: _tagController,
+                          decoration: const InputDecoration(
+                            labelText: 'タグ（例: #夜景 #桜）',
+                            border: OutlineInputBorder(),
+                            helperText: '入力してEnterで追加',
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: _addTagsFromInput,
+                        ),
+                        if (_tags.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: _tags
+                                .map(
+                                  (tag) => Chip(
+                                    label: Text('#$tag'),
+                                    onDeleted: () => _removeTag(tag),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
                         const SizedBox(height: 20),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: _isPosting
+                            onPressed: _isPosting || _selectedImages.isEmpty
                                 ? null
                                 : () async {
                                     final messenger = ScaffoldMessenger.of(
@@ -279,10 +404,13 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                     );
                                     final navigator = Navigator.of(context);
 
-                                    if (_selectedImages.isEmpty) {
+                                    // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
+                                    final sizeError = imageService
+                                        .validateSizes(_previewImageBytes);
+                                    if (sizeError != null) {
                                       messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text('画像を選択してください'),
+                                        SnackBar(
+                                          content: Text(sizeError),
                                           backgroundColor: Colors.red,
                                         ),
                                       );
@@ -304,6 +432,9 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                       _isPosting = true;
                                     });
 
+                                    final locationName = _locationController
+                                        .text
+                                        .trim();
                                     final post = Post(
                                       id: DateTime.now().millisecondsSinceEpoch
                                           .toString(),
@@ -313,6 +444,10 @@ class _PostAddDialogState extends State<PostAddDialog> {
                                       latitude: widget.pos.latitude,
                                       longitude: widget.pos.longitude,
                                       createdAt: DateTime.now(),
+                                      locationName: locationName.isEmpty
+                                          ? null
+                                          : locationName,
+                                      tags: List<String>.of(_tags),
                                     );
 
                                     final success = await postService

@@ -38,7 +38,7 @@ class UserService {
     return _firestore.collection(usersCollection).doc(uid).update({
       'username': username,
       'bio': bio,
-      if (profileImageUrl != null) 'profileImageUrl': profileImageUrl,
+      'profileImageUrl': ?profileImageUrl,
     });
   }
 

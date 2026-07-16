@@ -20,6 +20,12 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
 
+  <!--
+    現在地取得（geolocator）は Web ではブラウザの Geolocation API を利用する。
+    権限はブラウザが実行時に確認するため、ビルド時の追加設定は不要。
+    ただし取得には安全なコンテキスト（HTTPS）が必要（GitHub Pages は HTTPS 配信）。
+  -->
+
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">

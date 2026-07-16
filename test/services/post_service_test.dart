@@ -1,12 +1,21 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+
+/// 圧縮はプラットフォームチャネルに依存し VM テストで実行できないため、
+/// テストでは元のバイト列をそのまま返すダミーに差し替える。
+class _PassthroughImageService extends ImageService {
+  @override
+  Future<Uint8List> compressImage(XFile image) => image.readAsBytes();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +28,11 @@ void main() {
     setUp(() {
       firestore = FakeFirebaseFirestore();
       storage = MockFirebaseStorage();
-      service = PostService(firestore: firestore, storage: storage);
+      service = PostService(
+        firestore: firestore,
+        storage: storage,
+        imageService: _PassthroughImageService(),
+      );
     });
 
     test('createPost uploads images and saves the post document', () async {
@@ -44,6 +57,8 @@ void main() {
         latitude: 35.6895,
         longitude: 139.6917,
         createdAt: DateTime(2026, 4, 18, 10, 30),
+        locationName: '大阪城',
+        tags: const ['桜', '夜景'],
       );
 
       await service.createPost(post, [XFile(imageFile.path)]);
@@ -62,6 +77,12 @@ void main() {
       expect(data['latitude'], post.latitude);
       expect(data['longitude'], post.longitude);
       expect((data['createdAt'] as Timestamp).toDate(), post.createdAt);
+      expect(data['locationName'], '大阪城');
+      expect(List<String>.from(data['tags'] as List<dynamic>), <String>[
+        '桜',
+        '夜景',
+      ]);
+      expect(data['likeCount'], 0);
 
       final imageUrls = List<String>.from(data['imageUrls'] as List<dynamic>);
       expect(imageUrls, hasLength(1));
@@ -375,7 +396,144 @@ void main() {
         expect(snapshot.exists, isFalse);
       },
     );
+
+    test('updatePost writes updatedAt along with the edited fields', () async {
+      final post = Post(
+        id: 'post-update',
+        userId: 'user-1',
+        caption: 'before',
+        imageUrls: const ['https://example.com/1.jpg'],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 17, 0),
+      );
+
+      await firestore
+          .collection(PostService.postsCollection)
+          .doc(post.id)
+          .set(_toDocument(post));
+
+      final before = DateTime.now();
+      final success = await service.updatePost(
+        post,
+        caption: 'after',
+        imageUrls: const [],
+        removedImageUrls: const ['https://example.com/1.jpg'],
+      );
+      final after = DateTime.now();
+
+      expect(success, isTrue);
+
+      final data =
+          (await firestore
+                  .collection(PostService.postsCollection)
+                  .doc(post.id)
+                  .get())
+              .data();
+      expect(data!['caption'], 'after');
+
+      final updatedAt = (data['updatedAt'] as Timestamp).toDate();
+      expect(
+        updatedAt.isBefore(before.subtract(const Duration(seconds: 1))),
+        isFalse,
+      );
+      expect(updatedAt.isAfter(after.add(const Duration(seconds: 1))), isFalse);
+    });
+
+    test(
+      'watchPosts returns the newest posts limited to the page size',
+      () async {
+        await _seedPosts(firestore, count: 5);
+
+        final page = await service.watchPosts(limit: 3).first;
+
+        expect(page.posts.map((post) => post.id).toList(), <String>[
+          'post-4',
+          'post-3',
+          'post-2',
+        ]);
+        expect(page.hasMore, isTrue);
+        expect(page.lastDocument, isNotNull);
+      },
+    );
+
+    test('getPostsPage continues after the given cursor', () async {
+      await _seedPosts(firestore, count: 5);
+
+      final firstPage = await service.getPostsPage(limit: 3);
+      final secondPage = await service.getPostsPage(
+        startAfter: firstPage.lastDocument,
+        limit: 3,
+      );
+
+      expect(secondPage.posts.map((post) => post.id).toList(), <String>[
+        'post-1',
+        'post-0',
+      ]);
+      // 3 件に満たないので最後のページ。
+      expect(secondPage.hasMore, isFalse);
+    });
+
+    test(
+      'getPostsPage reports no more pages when there are no posts',
+      () async {
+        final page = await service.getPostsPage();
+
+        expect(page.posts, isEmpty);
+        expect(page.lastDocument, isNull);
+        expect(page.hasMore, isFalse);
+      },
+    );
+
+    test('getPostsByIds returns posts in the requested order', () async {
+      await _seedPosts(firestore, count: 3);
+
+      final posts = await service.getPostsByIds(['post-2', 'post-0']);
+
+      expect(posts.map((post) => post.id).toList(), ['post-2', 'post-0']);
+    });
+
+    test('getPostsByIds skips ids that no longer exist', () async {
+      await _seedPosts(firestore, count: 2);
+
+      final posts = await service.getPostsByIds([
+        'post-0',
+        'deleted',
+        'post-1',
+      ]);
+
+      expect(posts.map((post) => post.id).toList(), ['post-0', 'post-1']);
+    });
+
+    test('getPostsByIds returns an empty list for no ids', () async {
+      expect(await service.getPostsByIds(const []), isEmpty);
+    });
   });
+}
+
+/// createdAt が 1 分ずつ新しくなる投稿を `post-0`..`post-{count-1}` で作成する。
+Future<void> _seedPosts(
+  FakeFirebaseFirestore firestore, {
+  required int count,
+}) async {
+  for (var index = 0; index < count; index++) {
+    await firestore
+        .collection(PostService.postsCollection)
+        .doc('post-$index')
+        .set(
+          _toDocument(
+            Post(
+              id: 'post-$index',
+              userId: 'user-1',
+              caption: 'post $index',
+              imageUrls: const [],
+              latitude: 35.0,
+              longitude: 139.0,
+              createdAt: DateTime(2026, 4, 18, 9, index),
+            ),
+          ),
+        );
+  }
 }
 
 Map<String, dynamic> _toDocument(Post post) {
