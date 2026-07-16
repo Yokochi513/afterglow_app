@@ -175,6 +175,25 @@ class PostService {
     return query.limit(limit);
   }
 
+  /// [postIds] の投稿をその並び順のまま取得する。アルバム詳細のグリッド用
+  /// （PS_02）。`whereIn` は 1 クエリ 10 件までの制約があるため、ID 指定で
+  /// 個別に引いて件数制限を受けないようにしている。
+  /// 既に削除された投稿は結果から除外する。
+  Future<List<Post>> getPostsByIds(List<String> postIds) async {
+    if (postIds.isEmpty) {
+      return const [];
+    }
+
+    final documents = await Future.wait(
+      postIds.map((id) => _firestore.collection(postsCollection).doc(id).get()),
+    );
+
+    return documents
+        .where((document) => document.exists)
+        .map((document) => Post.fromSnapshot(document.id, document.data()!))
+        .toList(growable: false);
+  }
+
   /// 指定ユーザーの投稿を新しい順に購読する。プロフィールの投稿グリッド用。
   Stream<List<Post>> getUserPosts(String userId) {
     return _firestore

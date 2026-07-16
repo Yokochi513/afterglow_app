@@ -484,6 +484,30 @@ void main() {
         expect(page.hasMore, isFalse);
       },
     );
+
+    test('getPostsByIds returns posts in the requested order', () async {
+      await _seedPosts(firestore, count: 3);
+
+      final posts = await service.getPostsByIds(['post-2', 'post-0']);
+
+      expect(posts.map((post) => post.id).toList(), ['post-2', 'post-0']);
+    });
+
+    test('getPostsByIds skips ids that no longer exist', () async {
+      await _seedPosts(firestore, count: 2);
+
+      final posts = await service.getPostsByIds([
+        'post-0',
+        'deleted',
+        'post-1',
+      ]);
+
+      expect(posts.map((post) => post.id).toList(), ['post-0', 'post-1']);
+    });
+
+    test('getPostsByIds returns an empty list for no ids', () async {
+      expect(await service.getPostsByIds(const []), isEmpty);
+    });
   });
 }
 

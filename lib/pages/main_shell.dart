@@ -1,3 +1,4 @@
+import 'package:afterglow_app/pages/album_list_page.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
 import 'package:afterglow_app/pages/map_screen.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
@@ -11,8 +12,9 @@ import 'package:latlong2/latlong.dart';
 /// - 0: Feed（FR_02）… [FeedPage]
 /// - 1: Map（FR_03）… 既存 [MapScreen]
 /// - 2: 投稿（FR_07）… タブ選択で [PostAddDialog] を開く（タブは切り替えない）
-/// - 3: Event（FR_05・後続 Issue #15 で実装）… 現状はプレースホルダ
-/// - 4: Profile（FR_06）… 既存 [ProfilePage]
+/// - 3: Album（PS_02）… [AlbumListPage]（承認済みユーザー全員のアルバム）
+/// - 4: Event（FR_05・後続 Issue #15 で実装）… 現状はプレースホルダ
+/// - 5: Profile（FR_06）… 既存 [ProfilePage]
 ///
 /// タブ切替でスクロール位置などの状態を破棄しないよう [IndexedStack] で保持する。
 class MainShell extends StatefulWidget {
@@ -40,7 +42,8 @@ class _MainShellState extends State<MainShell> {
     FeedPage(), // 0: Feed（FR_02）
     MapScreen(), // 1: Map
     SizedBox.shrink(), // 2: 投稿（ダイアログのため未使用）
-    _PlaceholderPage(label: 'Event'), // 3: Event（#15 で実装）
+    AlbumListPage(), // 3: Album（PS_02）
+    _PlaceholderPage(label: 'Event'), // 4: Event（#15 で実装）
   ];
 
   void _onTabTapped(int index) {
@@ -76,6 +79,10 @@ class _MainShellState extends State<MainShell> {
           BottomNavigationBarItem(
             icon: Icon(Icons.add_box_outlined),
             label: '投稿',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.photo_album_outlined),
+            label: 'Album',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.event_outlined),
