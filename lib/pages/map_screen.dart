@@ -1,11 +1,14 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/pages/release_notes_page.dart';
 import 'package:afterglow_app/services/location_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/release_note_service.dart';
+import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
+import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:afterglow_app/widgets/release_note_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -55,6 +58,36 @@ class _MapScreenState extends State<MapScreen> {
 
   // 既にプリキャッシュ済みの画像URL（再ビルドでの重複プリキャッシュを防ぐ）
   final Set<String> _precachedUrls = {};
+
+  /// ピン押下時の軽量サマリー（Dialog）。写真・いいね・コメントだけを見せ、
+  /// 場所と編集は詳細ページ（[PostDetailPage]）に任せる。
+  void _openSummary(Post post) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => PostCardView(
+        post,
+        reactionBar: ReactionBar(post: post),
+        commentSection: CommentSection(post: post),
+        onOpenDetail: () {
+          Navigator.of(dialogContext).pop();
+          _openDetail(post);
+        },
+      ),
+    );
+  }
+
+  /// 投稿の詳細ページ。サマリーの「詳細を見る」から開く。
+  void _openDetail(Post post) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PostDetailPage(
+          post,
+          reactionBar: ReactionBar(post: post),
+          commentSection: CommentSection(post: post),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -223,12 +256,7 @@ class _MapScreenState extends State<MapScreen> {
                     width: 48,
                     height: 48,
                     child: GestureDetector(
-                      onTap: () {
-                        showDialog<void>(
-                          context: context,
-                          builder: (context) => PostCardView(post),
-                        );
-                      },
+                      onTap: () => _openSummary(post),
                       child: const Icon(
                         Icons.location_on,
                         color: Colors.red,
