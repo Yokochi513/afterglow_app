@@ -14,6 +14,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key, LocationService? locationService})
@@ -36,6 +37,9 @@ class _MapScreenState extends State<MapScreen> {
 
   /// 現在地マーカーの外枠サイズ。青丸（18px）＋影のはみ出し分の余白。
   static const double _myLocationMarkerSize = 28.0;
+
+  /// フィードバック受付フォーム（Google フォーム）。
+  static const String _feedbackFormUrl = 'https://forms.gle/5xaCtzyDeqFVBF9D7';
 
   final MapController _mapController = MapController();
 
@@ -117,6 +121,39 @@ class _MapScreenState extends State<MapScreen> {
     ).push(MaterialPageRoute<void>(builder: (_) => const ReleaseNotesPage()));
   }
 
+  /// 確認ダイアログを挟んでからフィードバックフォームを外部ブラウザで開く。
+  Future<void> _openFeedbackForm() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('フィードバック'),
+        content: const Text('ご意見・ご要望のフォームを開きます。外部サイト（Google フォーム）へ移動しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('開く'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final opened = await launchUrl(
+      Uri.parse(_feedbackFormUrl),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (opened || !mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('フォームを開けませんでした')));
+  }
+
   /// 現在地を取得し、成功したら地図をそこへ移動する。
   /// 失敗（サービス無効・拒否・タイムアウト等）してもクラッシュせず、
   /// SnackBar で理由を案内する（永久拒否時は設定を開く導線を出す）。
@@ -162,6 +199,11 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: const Text('Map'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.feedback_outlined),
+            tooltip: 'フィードバック',
+            onPressed: _openFeedbackForm,
+          ),
           IconButton(
             icon: const Icon(Icons.campaign_outlined),
             tooltip: 'お知らせ',
