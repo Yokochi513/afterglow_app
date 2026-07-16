@@ -1,4 +1,5 @@
 import 'package:afterglow_app/pages/album_list_page.dart';
+import 'package:afterglow_app/pages/event_page.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
 import 'package:afterglow_app/pages/map_screen.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
@@ -13,7 +14,7 @@ import 'package:latlong2/latlong.dart';
 /// - 1: Map（FR_03）… 既存 [MapScreen]
 /// - 2: 投稿（FR_07）… タブ選択で [PostAddDialog] を開く（タブは切り替えない）
 /// - 3: Album（PS_02）… [AlbumListPage]（承認済みユーザー全員のアルバム）
-/// - 4: Event（FR_05・後続 Issue #15 で実装）… 現状はプレースホルダ
+/// - 4: Event（FR_05）… [EventPage]（承認済みユーザー全員のイベント）
 /// - 5: Profile（FR_06）… 既存 [ProfilePage]
 ///
 /// タブ切替でスクロール位置などの状態を破棄しないよう [IndexedStack] で保持する。
@@ -43,7 +44,7 @@ class _MainShellState extends State<MainShell> {
     MapScreen(), // 1: Map
     SizedBox.shrink(), // 2: 投稿（ダイアログのため未使用）
     AlbumListPage(), // 3: Album（PS_02）
-    _PlaceholderPage(label: 'Event'), // 4: Event（#15 で実装）
+    EventPage(), // 4: Event（FR_05）
   ];
 
   void _onTabTapped(int index) {
@@ -90,21 +91,6 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// 後続 Issue で実装予定のタブ用の最小プレースホルダ。
-class _PlaceholderPage extends StatelessWidget {
-  const _PlaceholderPage({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(label)),
-      body: Center(child: Text('$label（準備中）')),
     );
   }
 }
