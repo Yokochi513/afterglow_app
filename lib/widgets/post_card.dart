@@ -1,20 +1,33 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 /// フィード（FR_02 / §5.3）の 1 投稿を表すカード。
 ///
-/// サムネイル（先頭画像）・投稿者名・caption・タグ・いいね数・コメント数を表示し、
-/// タップで [onTap] を呼ぶ。画像は [CachedNetworkImage] でディスクキャッシュする（§8.2）。
+/// サムネイル（先頭画像）・投稿者名・caption・タグ・いいね・コメント数を表示し、
+/// タップで [onTap] を呼ぶ。いいねはカード上で直接トグルできる（[ReactionBar]）。
+/// 画像は [CachedNetworkImage] でディスクキャッシュする（§8.2）。
 class PostCard extends StatefulWidget {
-  const PostCard(this.post, {super.key, this.onTap, this.userService});
+  const PostCard(
+    this.post, {
+    super.key,
+    this.onTap,
+    this.userService,
+    this.authService,
+    this.reactionService,
+  });
 
   final Post post;
   final VoidCallback? onTap;
 
   /// テスト時に差し替え可能。null の場合はビルド時に既定インスタンスを生成する。
   final UserService? userService;
+  final AuthService? authService;
+  final ReactionService? reactionService;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -142,15 +155,19 @@ class _PostCardState extends State<PostCard> {
     );
   }
 
-  /// いいね数・コメント数（いずれも posts の非正規化フィールド）。
+  /// いいね（トグル可能）とコメント数。
+  /// コメント数は posts の非正規化フィールドをそのまま表示する。
   Widget _buildCounts(Post post) {
     final style = Theme.of(context).textTheme.labelMedium;
 
     return Row(
       children: [
-        const Icon(Icons.favorite_border, size: 16),
-        const SizedBox(width: 4),
-        Text('${post.likeCount}', style: style),
+        ReactionBar(
+          post: post,
+          compact: true,
+          authService: widget.authService,
+          reactionService: widget.reactionService,
+        ),
         const SizedBox(width: 16),
         const Icon(Icons.mode_comment_outlined, size: 16),
         const SizedBox(width: 4),
