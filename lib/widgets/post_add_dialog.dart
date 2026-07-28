@@ -11,7 +11,19 @@ import 'package:latlong2/latlong.dart';
 class PostAddDialog extends StatefulWidget {
   final LatLng pos;
 
-  const PostAddDialog({super.key, required this.pos});
+  /// テストからサービスを差し替えるための任意の注入口（DI 方針）。
+  /// 未指定なら `.instance` ベースの既定サービスを State 側で遅延生成する。
+  final PostService? postService;
+  final AuthService? authService;
+  final ImageService? imageService;
+
+  const PostAddDialog({
+    super.key,
+    required this.pos,
+    this.postService,
+    this.authService,
+    this.imageService,
+  });
 
   @override
   State<PostAddDialog> createState() => _PostAddDialogState();
@@ -27,9 +39,10 @@ class _PostAddDialogState extends State<PostAddDialog> {
   final ImagePicker _imagePicker = ImagePicker();
   final PageController _pageController = PageController();
 
-  final PostService postService = PostService();
-  final AuthService authService = AuthService();
-  final ImageService imageService = ImageService();
+  // 注入がなければ既定のサービスを遅延生成する（Firebase 初期化前に触らないため）
+  late final PostService postService = widget.postService ?? PostService();
+  late final AuthService authService = widget.authService ?? AuthService();
+  late final ImageService imageService = widget.imageService ?? ImageService();
 
   final List<XFile> _selectedImages = [];
   final List<Uint8List> _previewImageBytes = [];
@@ -195,326 +208,318 @@ class _PostAddDialogState extends State<PostAddDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 630, maxHeight: 800),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Stack(
-              children: [
-                AbsorbPointer(
-                  absorbing: _isPosting,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '投稿',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 12),
-                        // 画像プレビューと選択
-                        Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.grey.shade400,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
+      // キーボードインセットは Dialog が内部で処理するため、ここでは重ねてパディングしない。
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 630, maxHeight: 800),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Stack(
+            children: [
+              AbsorbPointer(
+                absorbing: _isPosting,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('投稿', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 12),
+                      // 画像プレビューと選択
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Colors.grey.shade400,
+                            width: 2,
                           ),
-                          child: AspectRatio(
-                            aspectRatio: 4 / 3,
-                            child: _selectedImages.isEmpty
-                                ? InkWell(
-                                    borderRadius: BorderRadius.circular(10),
-                                    onTap: pickAndUploadImages,
-                                    child: const Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.add_photo_alternate_outlined,
-                                            size: 40,
-                                          ),
-                                          SizedBox(height: 8),
-                                          Text('タップして画像を選択'),
-                                        ],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: AspectRatio(
+                          aspectRatio: 4 / 3,
+                          child: _selectedImages.isEmpty
+                              ? InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: pickAndUploadImages,
+                                  child: const Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.add_photo_alternate_outlined,
+                                          size: 40,
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text('タップして画像を選択'),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Positioned.fill(
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: PageView.builder(
+                                          controller: _pageController,
+                                          itemCount: _selectedImages.length,
+                                          onPageChanged: (index) {
+                                            setState(() {
+                                              _currentImageIndex = index;
+                                            });
+                                          },
+                                          itemBuilder: (context, index) {
+                                            return Image.memory(
+                                              _previewImageBytes[index],
+                                              width: double.infinity,
+                                              height: double.infinity,
+                                              fit: BoxFit.cover,
+                                              gaplessPlayback: true,
+                                            );
+                                          },
+                                        ),
                                       ),
                                     ),
-                                  )
-                                : Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      Positioned.fill(
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          child: PageView.builder(
-                                            controller: _pageController,
-                                            itemCount: _selectedImages.length,
-                                            onPageChanged: (index) {
-                                              setState(() {
-                                                _currentImageIndex = index;
-                                              });
-                                            },
-                                            itemBuilder: (context, index) {
-                                              return Image.memory(
-                                                _previewImageBytes[index],
-                                                width: double.infinity,
-                                                height: double.infinity,
-                                                fit: BoxFit.cover,
-                                                gaplessPlayback: true,
-                                              );
-                                            },
-                                          ),
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: _overlayButton(
+                                        icon: Icons.close,
+                                        onPressed: () =>
+                                            removeImage(_currentImageIndex),
+                                      ),
+                                    ),
+                                    if (_selectedImages.length > 1) ...[
+                                      Positioned(
+                                        left: 8,
+                                        child: _overlayButton(
+                                          icon: Icons.chevron_left,
+                                          onPressed: _currentImageIndex > 0
+                                              ? _showPreviousImage
+                                              : null,
                                         ),
                                       ),
                                       Positioned(
-                                        top: 8,
                                         right: 8,
                                         child: _overlayButton(
-                                          icon: Icons.close,
-                                          onPressed: () =>
-                                              removeImage(_currentImageIndex),
-                                        ),
-                                      ),
-                                      if (_selectedImages.length > 1) ...[
-                                        Positioned(
-                                          left: 8,
-                                          child: _overlayButton(
-                                            icon: Icons.chevron_left,
-                                            onPressed: _currentImageIndex > 0
-                                                ? _showPreviousImage
-                                                : null,
-                                          ),
-                                        ),
-                                        Positioned(
-                                          right: 8,
-                                          child: _overlayButton(
-                                            icon: Icons.chevron_right,
-                                            onPressed:
-                                                _currentImageIndex <
-                                                    _selectedImages.length - 1
-                                                ? _showNextImage
-                                                : null,
-                                          ),
-                                        ),
-                                      ],
-                                      Positioned(
-                                        bottom: 8,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black54,
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            '${_currentImageIndex + 1} / ${_selectedImages.length}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
+                                          icon: Icons.chevron_right,
+                                          onPressed:
+                                              _currentImageIndex <
+                                                  _selectedImages.length - 1
+                                              ? _showNextImage
+                                              : null,
                                         ),
                                       ),
                                     ],
-                                  ),
+                                    Positioned(
+                                      bottom: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black54,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${_currentImageIndex + 1} / ${_selectedImages.length}',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // 画像枚数の表示と追加（PS_01）
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: _selectedImages.length >= _maxImages
+                                ? null
+                                : pickAndUploadImages,
+                            icon: const Icon(Icons.add_photo_alternate),
+                            label: const Text('画像を追加'),
                           ),
+                          const Spacer(),
+                          Text('${_selectedImages.length} / $_maxImages'),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _captionController,
+                        decoration: const InputDecoration(
+                          labelText: 'キャプション',
+                          border: OutlineInputBorder(),
                         ),
-                        const SizedBox(height: 8),
-                        // 画像枚数の表示と追加（PS_01）
-                        Row(
-                          children: [
-                            TextButton.icon(
-                              onPressed: _selectedImages.length >= _maxImages
-                                  ? null
-                                  : pickAndUploadImages,
-                              icon: const Icon(Icons.add_photo_alternate),
-                              label: const Text('画像を追加'),
-                            ),
-                            const Spacer(),
-                            Text('${_selectedImages.length} / $_maxImages'),
-                          ],
+                        maxLines: null,
+                        minLines: 3,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _locationController,
+                        decoration: const InputDecoration(
+                          labelText: '場所名',
+                          border: OutlineInputBorder(),
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      // タグ入力（`#タグ名` で複数入力・個別削除）— PS_03
+                      TextField(
+                        controller: _tagController,
+                        decoration: const InputDecoration(
+                          labelText: 'タグ（例: #夜景 #桜）',
+                          border: OutlineInputBorder(),
+                          helperText: '入力してEnterで追加',
+                        ),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: _addTagsFromInput,
+                      ),
+                      if (_tags.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: _captionController,
-                          decoration: const InputDecoration(
-                            labelText: 'キャプション',
-                            border: OutlineInputBorder(),
-                          ),
-                          maxLines: null,
-                          minLines: 3,
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: _tags
+                              .map(
+                                (tag) => Chip(
+                                  label: Text('#$tag'),
+                                  onDeleted: () => _removeTag(tag),
+                                ),
+                              )
+                              .toList(),
                         ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _locationController,
-                          decoration: const InputDecoration(
-                            labelText: '場所名',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // タグ入力（`#タグ名` で複数入力・個別削除）— PS_03
-                        TextField(
-                          controller: _tagController,
-                          decoration: const InputDecoration(
-                            labelText: 'タグ（例: #夜景 #桜）',
-                            border: OutlineInputBorder(),
-                            helperText: '入力してEnterで追加',
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: _addTagsFromInput,
-                        ),
-                        if (_tags.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            children: _tags
-                                .map(
-                                  (tag) => Chip(
-                                    label: Text('#$tag'),
-                                    onDeleted: () => _removeTag(tag),
+                      ],
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isPosting || _selectedImages.isEmpty
+                              ? null
+                              : () async {
+                                  final messenger = ScaffoldMessenger.of(
+                                    context,
+                                  );
+                                  final navigator = Navigator.of(context);
+
+                                  // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
+                                  final sizeError = imageService.validateSizes(
+                                    _previewImageBytes,
+                                  );
+                                  if (sizeError != null) {
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(sizeError),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  final userId = authService.currentUserId;
+                                  if (userId == null) {
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                        content: Text('ログインが必要です'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  setState(() {
+                                    _isPosting = true;
+                                  });
+
+                                  final locationName = _locationController.text
+                                      .trim();
+                                  final post = Post(
+                                    id: DateTime.now().millisecondsSinceEpoch
+                                        .toString(),
+                                    userId: userId,
+                                    caption: _captionController.text,
+                                    imageUrls: [],
+                                    latitude: widget.pos.latitude,
+                                    longitude: widget.pos.longitude,
+                                    createdAt: DateTime.now(),
+                                    locationName: locationName.isEmpty
+                                        ? null
+                                        : locationName,
+                                    tags: List<String>.of(_tags),
+                                  );
+
+                                  final success = await postService.createPost(
+                                    post,
+                                    _selectedImages,
+                                  );
+
+                                  if (!mounted) {
+                                    return;
+                                  }
+
+                                  if (success) {
+                                    navigator.pop();
+                                  } else {
+                                    setState(() {
+                                      _isPosting = false;
+                                    });
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                        content: Text('投稿に失敗しました'),
+                                      ),
+                                    );
+                                  }
+                                },
+                          child: _isPosting
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
                                   ),
                                 )
-                                .toList(),
-                          ),
-                        ],
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isPosting || _selectedImages.isEmpty
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    final navigator = Navigator.of(context);
-
-                                    // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
-                                    final sizeError = imageService
-                                        .validateSizes(_previewImageBytes);
-                                    if (sizeError != null) {
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          content: Text(sizeError),
-                                          backgroundColor: Colors.red,
-                                        ),
-                                      );
-                                      return;
-                                    }
-
-                                    final userId = authService.currentUserId;
-                                    if (userId == null) {
-                                      messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text('ログインが必要です'),
-                                          backgroundColor: Colors.red,
-                                        ),
-                                      );
-                                      return;
-                                    }
-
-                                    setState(() {
-                                      _isPosting = true;
-                                    });
-
-                                    final locationName = _locationController
-                                        .text
-                                        .trim();
-                                    final post = Post(
-                                      id: DateTime.now().millisecondsSinceEpoch
-                                          .toString(),
-                                      userId: userId,
-                                      caption: _captionController.text,
-                                      imageUrls: [],
-                                      latitude: widget.pos.latitude,
-                                      longitude: widget.pos.longitude,
-                                      createdAt: DateTime.now(),
-                                      locationName: locationName.isEmpty
-                                          ? null
-                                          : locationName,
-                                      tags: List<String>.of(_tags),
-                                    );
-
-                                    final success = await postService
-                                        .createPost(post, _selectedImages);
-
-                                    if (!mounted) {
-                                      return;
-                                    }
-
-                                    if (success) {
-                                      navigator.pop();
-                                    } else {
-                                      setState(() {
-                                        _isPosting = false;
-                                      });
-                                      messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text('投稿に失敗しました'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                            child: _isPosting
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text('投稿する'),
-                          ),
+                              : const Text('投稿する'),
                         ),
-                        const SizedBox(height: 12),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                   ),
                 ),
-                if (_isPosting)
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: Color(0x66000000),
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 20,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 12),
-                              Text('投稿中...'),
-                            ],
-                          ),
+              ),
+              if (_isPosting)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Color(0x66000000),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 20,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text('投稿中...'),
+                          ],
                         ),
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),
