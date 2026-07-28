@@ -1,0 +1,172 @@
+name: Refine Google From feedback
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: refine-feedback-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  refine-feedback:
+    name: Rfine feedback and notify developers
+    rus-on: ubuntu-latest
+    if: >
+      !github.event.issue.pull_request &&
+      (github.event.acction != 'labeled' || github.event.label.name != 'ai-refiend') &&
+      contains(github.event.issue.labels.*.name, 'フィードバック')
+    
+    step:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Build refinement prompt
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          cat > prompt.md <<'PROMPT'
+          あなたはプロダクト開発チームのトリアージ担当です。
+          Google FormからGitHub Issue化されたユーザーFBを、開発者がすぐ判断できる形にリファインしてください。
+
+          必ず日本語で、次のMarkdown構成だけで出力してください。
+
+          ## 要約
+          - 1から3行で、何が困っているか
+
+          ## ユーザー影響
+          - 影響範囲、困り度、頻度の推定。不明なら不明と書く
+
+          ## 再現・確認したいこと
+          - 開発者またはCSが追加確認すべき質問
+
+          ## 開発観点の仮説
+          - 原因候補や関連しそうな領域。断定しない
+
+          ## 推奨アクション
+          - 次に誰が何を見るべきか
+
+          制約:
+          - 元FBにない事実を断定しない
+          - 個人情報らしき文字列は引用しない
+          - 実装方針を決めつけず、調査単位に落とす
+          PROMPT
+
+          {
+            echo ''
+            echo '---'
+            echo "Issue URL: ${ISSUE_URL}"
+            echo "Issue author: ${ISSUE_AUTHOR}"
+            echo "Title: ${ISSUE_TITLE}"
+            echo ''
+            echo 'Issue body:'
+            printf '%s\n' "${ISSUE_BODY:-'(empty)'}"
+          } >> prompt.md
+
+      - name: Run Claude refinement
+        env:
+          # GitHub-hosted runnerでClaude契約を使う場合は、`claude setup-token` で発行した値を
+          # repository secret `CLAUDE_CODE_OAUTH_TOKEN` に保存してください。
+          # self-hosted runnerで事前に `claude` ログイン済みなら、このSecretは不要です。
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_SKIP_PROMPT_HISTORY: '1'
+        run: |
+          claude -p "$(cat prompt.md)" --output-format json > claude-output.json
+          node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('claude-output.json','utf8')); fs.writeFileSync('refinement.md', data.result || '');"
+
+          if [ ! -s refinement.md ]; then
+            echo "Claude returned no refinement text."
+            cat claude-output.json
+            exit 1
+          fi
+
+      - name: Create or update refinement comment
+        id: comment
+        uses: actions/github-script@v9
+        env:
+          DEVELOPER_MENTIONS: ${{ vars.FEEDBACK_DEVELOPER_MENTIONS || '@your-team-or-dev' }}
+        with:
+          result-encoding: string
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- feedback-refinement-bot -->';
+            const mentions = process.env.DEVELOPER_MENTIONS || '';
+            const refinement = fs.readFileSync('refinement.md', 'utf8').trim();
+
+            const body = [
+              marker,
+              mentions,
+              '',
+              'ClaudeによるFBリファインメントです。元Issueの内容から推定した整理なので、事実確認が必要な点は「不明」として扱ってください。',
+              '',
+              refinement,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const previousComment = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (previousComment) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: previousComment.id,
+                body,
+              });
+              return 'updated';
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+
+            return 'created';
+
+      - name: Mark as refined
+        if: ${{ steps.comment.outputs.result == 'created' || steps.comment.outputs.result == 'updated' }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            try {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: context.issue.number,
+                labels: ['ai-refined'],
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                core.warning('Label "ai-refined" does not exist. Create it in the repository if you want processed issues to be labeled.');
+                return;
+              }
+              throw error;
+            }
