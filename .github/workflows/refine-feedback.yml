@@ -15,7 +15,7 @@ concurrency:
 jobs:
   refine-feedback:
     name: Rfine feedback and notify developers
-    rus-on: ubuntu-latest
+    runs-on: ubuntu-latest
     if: >
       !github.event.issue.pull_request &&
       (github.event.acction != 'labeled' || github.event.label.name != 'ai-refiend') &&
