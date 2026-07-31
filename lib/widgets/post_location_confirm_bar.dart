@@ -1,20 +1,33 @@
 import 'package:flutter/material.dart';
 
 /// 地図で選んだ投稿位置の確認バー（Issue #36）。
-/// 「ここに投稿」で投稿ダイアログへ進み、「キャンセル」で選択を解除する。
+/// 既定では「ここに投稿」で投稿ダイアログへ進み、「キャンセル」で選択を解除する。
 /// 位置の取り直し（地図の再タップでマーカーを動かす）は呼び出し側が扱う。
+/// 文言とアイコンは差し替え可能で、位置の編集（Issue #37）でも使い回す。
 class PostLocationConfirmBar extends StatelessWidget {
   const PostLocationConfirmBar({
     super.key,
     required this.onConfirm,
     required this.onCancel,
+    this.message = 'この場所に投稿しますか？',
+    this.confirmLabel = 'ここに投稿',
+    this.confirmIcon = Icons.add_a_photo,
   });
 
-  /// 「ここに投稿」押下時に呼ばれる。
+  /// 確定ボタン押下時に呼ばれる。
   final VoidCallback onConfirm;
 
   /// 「キャンセル」押下時に呼ばれる。
   final VoidCallback onCancel;
+
+  /// 案内文。既定は投稿用の文言。
+  final String message;
+
+  /// 確定ボタンのラベル。既定は投稿用の文言。
+  final String confirmLabel;
+
+  /// 確定ボタンのアイコン。既定は投稿用のカメラアイコン。
+  final IconData confirmIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +42,7 @@ class PostLocationConfirmBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('この場所に投稿しますか？'),
+              Text(message),
               const SizedBox(height: 2),
               Text(
                 '地図をタップすると位置を選び直せます',
@@ -43,8 +56,8 @@ class PostLocationConfirmBar extends StatelessWidget {
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: onConfirm,
-                    icon: const Icon(Icons.add_a_photo),
-                    label: const Text('ここに投稿'),
+                    icon: Icon(confirmIcon),
+                    label: Text(confirmLabel),
                   ),
                 ],
               ),

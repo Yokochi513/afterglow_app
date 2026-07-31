@@ -1,5 +1,6 @@
 import 'package:afterglow_app/models/app_user.dart';
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
@@ -114,6 +115,16 @@ class _PostDetailViewState extends State<PostDetailView> {
   late List<String> _backupImageUrls = List<String>.of(_imageUrls);
   String _backupCaption = '';
 
+  /// 表示・編集中の投稿位置。位置の選び直し（Issue #37）で置き換わる。
+  /// 保存後も `widget.post` は古い位置のままなので、こちらを表示に使い続ける。
+  late LatLng _position = LatLng(widget.post.latitude, widget.post.longitude);
+
+  /// 編集キャンセル時に復元するための位置バックアップ。
+  late LatLng _backupPosition = _position;
+
+  /// 編集中に位置が変更されたか。保存時に緯度経度を送るかの判定に使う。
+  bool _positionChanged = false;
+
   late final TextEditingController _captionController = TextEditingController(
     text: widget.post.caption,
   );
@@ -142,6 +153,8 @@ class _PostDetailViewState extends State<PostDetailView> {
     setState(() {
       _backupImageUrls = List<String>.of(_imageUrls);
       _backupCaption = _captionController.text;
+      _backupPosition = _position;
+      _positionChanged = false;
       _removedImageUrls.clear();
       _isEditing = true;
     });
@@ -151,6 +164,8 @@ class _PostDetailViewState extends State<PostDetailView> {
     setState(() {
       _imageUrls = List<String>.of(_backupImageUrls);
       _captionController.text = _backupCaption;
+      _position = _backupPosition;
+      _positionChanged = false;
       _removedImageUrls.clear();
       _isEditing = false;
       if (_currentImageIndex >= _imageUrls.length) {
@@ -158,6 +173,21 @@ class _PostDetailViewState extends State<PostDetailView> {
       }
     });
     _syncPageController();
+  }
+
+  /// 位置選択ページを開き、選び直した位置をプレビューへ反映する（Issue #37）。
+  /// キャンセル（null で戻る）のときは何もしない。
+  Future<void> _changeLocation() async {
+    final selected = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute<LatLng>(
+        builder: (_) => LocationPickerPage(initialPosition: _position),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _position = selected;
+      _positionChanged = true;
+    });
   }
 
   /// 現在表示中の画像を削除する。投稿には最低 1 枚の画像が必要なため、
@@ -202,6 +232,9 @@ class _PostDetailViewState extends State<PostDetailView> {
       caption: _captionController.text,
       imageUrls: _imageUrls,
       removedImageUrls: _removedImageUrls,
+      // 位置は選び直したときだけ送る。null なら既存の位置を維持する。
+      latitude: _positionChanged ? _position.latitude : null,
+      longitude: _positionChanged ? _position.longitude : null,
     );
 
     if (!mounted) {
@@ -213,6 +246,8 @@ class _PostDetailViewState extends State<PostDetailView> {
         _isSaving = false;
         _isEditing = false;
         _removedImageUrls.clear();
+        // _position は保存済みの新しい位置としてプレビュー表示に使い続ける。
+        _positionChanged = false;
       });
       messenger.showSnackBar(const SnackBar(content: Text('投稿を更新しました')));
     } else {
@@ -492,10 +527,10 @@ class _PostDetailViewState extends State<PostDetailView> {
   }
 
   /// 場所名と地図ミニプレビュー。地図は閲覧専用（操作不可）。
+  /// 編集中は「位置を変更」ボタンを出し、位置の選び直し（Issue #37）へ進める。
   Widget _buildLocation() {
-    final post = widget.post;
-    final locationName = post.locationName ?? '';
-    final point = LatLng(post.latitude, post.longitude);
+    final locationName = widget.post.locationName ?? '';
+    final point = _position;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,6 +557,9 @@ class _PostDetailViewState extends State<PostDetailView> {
             height: _mapPreviewHeight,
             width: double.infinity,
             child: FlutterMap(
+              // FlutterMap は initialCenter の変更では再センタリングされない
+              // ため、位置が変わったら座標由来のキーで再構築する。
+              key: ValueKey('${point.latitude},${point.longitude}'),
               options: MapOptions(
                 initialCenter: point,
                 initialZoom: _mapPreviewZoom,
@@ -552,6 +590,15 @@ class _PostDetailViewState extends State<PostDetailView> {
             ),
           ),
         ),
+        // 編集中だけ位置の選び直し導線を出す
+        if (_isEditing) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _isSaving ? null : _changeLocation,
+            icon: const Icon(Icons.edit_location_alt),
+            label: const Text('位置を変更'),
+          ),
+        ],
       ],
     );
   }

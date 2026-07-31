@@ -441,6 +441,86 @@ void main() {
     });
 
     test(
+      'updatePost updates the position when both coordinates are given',
+      () async {
+        final post = Post(
+          id: 'post-move',
+          userId: 'user-1',
+          caption: 'before',
+          imageUrls: const ['https://example.com/1.jpg'],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 4, 18, 17, 0),
+        );
+
+        await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .set(_toDocument(post));
+
+        final success = await service.updatePost(
+          post,
+          caption: post.caption,
+          imageUrls: post.imageUrls,
+          removedImageUrls: const [],
+          latitude: 34.6695,
+          longitude: 133.9511,
+        );
+
+        expect(success, isTrue);
+
+        final data =
+            (await firestore
+                    .collection(PostService.postsCollection)
+                    .doc(post.id)
+                    .get())
+                .data();
+        expect(data!['latitude'], 34.6695);
+        expect(data['longitude'], 133.9511);
+        // 位置編集でも updatedAt は記録される（PS_08）
+        expect(data['updatedAt'], isA<Timestamp>());
+      },
+    );
+
+    test(
+      'updatePost keeps the position when coordinates are omitted',
+      () async {
+        final post = Post(
+          id: 'post-stay',
+          userId: 'user-1',
+          caption: 'before',
+          imageUrls: const ['https://example.com/1.jpg'],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 4, 18, 17, 0),
+        );
+
+        await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .set(_toDocument(post));
+
+        final success = await service.updatePost(
+          post,
+          caption: 'after',
+          imageUrls: post.imageUrls,
+          removedImageUrls: const [],
+        );
+
+        expect(success, isTrue);
+
+        final data =
+            (await firestore
+                    .collection(PostService.postsCollection)
+                    .doc(post.id)
+                    .get())
+                .data();
+        expect(data!['latitude'], 35.0);
+        expect(data['longitude'], 139.0);
+      },
+    );
+
+    test(
       'watchPosts returns the newest posts limited to the page size',
       () async {
         await _seedPosts(firestore, count: 5);

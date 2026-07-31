@@ -38,6 +38,27 @@ void main() {
       expect(cancelled, 0);
     });
 
+    testWidgets('文言とアイコンを差し替えられる', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PostLocationConfirmBar(
+              onConfirm: () {},
+              onCancel: () {},
+              message: 'この場所に変更しますか？',
+              confirmLabel: 'この場所にする',
+              confirmIcon: Icons.check,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('この場所に変更しますか？'), findsOneWidget);
+      expect(find.text('この場所にする'), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.text('この場所に投稿しますか？'), findsNothing);
+    });
+
     testWidgets('「キャンセル」押下で onCancel だけが呼ばれる', (tester) async {
       var confirmed = 0;
       var cancelled = 0;
