@@ -1,5 +1,6 @@
 import 'package:afterglow_app/models/app_user.dart';
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/image_viewer_page.dart';
 import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
@@ -325,12 +326,14 @@ class _PostDetailViewState extends State<PostDetailView> {
     required IconData icon,
     required VoidCallback? onPressed,
     Color backgroundColor = Colors.black54,
+    String? tooltip,
   }) {
     return Container(
       decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
       child: IconButton(
         onPressed: onPressed,
         icon: Icon(icon, color: Colors.white),
+        tooltip: tooltip,
         splashRadius: 20,
       ),
     );
@@ -410,7 +413,21 @@ class _PostDetailViewState extends State<PostDetailView> {
     ];
   }
 
+  /// 全画面ビューアを開く（Issue #45）。表示中の画像から始める。
+  void _openImageViewer() {
+    if (_imageUrls.isEmpty) return;
+    ImageViewerPage.open(
+      context,
+      imageUrls: List<String>.of(_imageUrls),
+      initialIndex: _currentImageIndex,
+    );
+  }
+
   /// 画像ギャラリー（PageView）。編集中は現在の画像を削除できる。
+  ///
+  /// 写真は縦横比がまちまちなので [BoxFit.contain] で全体を見せ、余白は
+  /// 黒で埋める（Issue #45: 一部しか見えない）。タップすると全画面ビューアで
+  /// 拡大できる。
   ///
   /// [PostViewMode.summary] は Dialog 内のカードとして枠線を付けるが、
   /// [PostViewMode.full] は写真自体が主役なので枠線を外す。
@@ -433,45 +450,65 @@ class _PostDetailViewState extends State<PostDetailView> {
             Positioned.fill(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: _imageUrls.length,
-                  onPageChanged: (index) {
-                    setState(() {
-                      _currentImageIndex = index;
-                    });
-                  },
-                  itemBuilder: (context, index) {
-                    // 表示サイズに合わせてデコードし、メモリ使用量と
-                    // デコード時間を抑える
-                    final cacheWidth =
-                        (MediaQuery.of(context).size.width *
-                                MediaQuery.of(context).devicePixelRatio)
-                            .round();
-                    return CachedNetworkImage(
-                      imageUrl: _imageUrls[index],
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      memCacheWidth: cacheWidth,
-                      fadeInDuration: const Duration(milliseconds: 150),
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Center(
-                          child: Icon(
-                            Icons.broken_image_outlined,
-                            color: Colors.grey,
-                            size: 40,
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: _imageUrls.length,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _currentImageIndex = index;
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      // 表示サイズに合わせてデコードし、メモリ使用量と
+                      // デコード時間を抑える
+                      final cacheWidth =
+                          (MediaQuery.of(context).size.width *
+                                  MediaQuery.of(context).devicePixelRatio)
+                              .round();
+                      // タップで全画面ビューアへ。ページ送りのスワイプは
+                      // GestureDetector の onTap と競合しない。
+                      return GestureDetector(
+                        onTap: _openImageViewer,
+                        child: CachedNetworkImage(
+                          imageUrl: _imageUrls[index],
+                          width: double.infinity,
+                          height: double.infinity,
+                          fit: BoxFit.contain,
+                          memCacheWidth: cacheWidth,
+                          fadeInDuration: const Duration(milliseconds: 150),
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey.shade200,
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey.shade200,
+                            child: const Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: Colors.grey,
+                                size: 40,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
+              ),
+            ),
+            // 拡大できることが分かるようにヒントを兼ねたボタンを置く
+            Positioned(
+              top: 8,
+              left: 8,
+              child: _overlayButton(
+                icon: Icons.zoom_out_map,
+                onPressed: _openImageViewer,
+                tooltip: '写真を拡大',
               ),
             ),
             if (_imageUrls.length > 1) ...[
