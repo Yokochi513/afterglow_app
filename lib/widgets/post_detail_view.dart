@@ -1,5 +1,7 @@
 import 'package:afterglow_app/models/app_user.dart';
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/image_viewer_page.dart';
+import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
@@ -81,6 +83,10 @@ class _PostDetailViewState extends State<PostDetailView> {
   /// [PostViewMode.full] で 2 カラムに切り替える幅。これ未満は 1 カラム。
   static const double _twoColumnBreakpoint = 900;
 
+  /// ギャラリーに重ねる丸ボタン（拡大・ページ送り・削除）の大きさ。
+  static const double _overlayButtonSize = 32;
+  static const double _overlayIconSize = 18;
+
   /// 2 カラム時の左右の幅の比と間隔。写真を主役にするため左を広く取る。
   static const int _galleryColumnFlex = 3;
   static const int _infoColumnFlex = 2;
@@ -114,6 +120,16 @@ class _PostDetailViewState extends State<PostDetailView> {
   late List<String> _backupImageUrls = List<String>.of(_imageUrls);
   String _backupCaption = '';
 
+  /// 表示・編集中の投稿位置。位置の選び直し（Issue #37）で置き換わる。
+  /// 保存後も `widget.post` は古い位置のままなので、こちらを表示に使い続ける。
+  late LatLng _position = LatLng(widget.post.latitude, widget.post.longitude);
+
+  /// 編集キャンセル時に復元するための位置バックアップ。
+  late LatLng _backupPosition = _position;
+
+  /// 編集中に位置が変更されたか。保存時に緯度経度を送るかの判定に使う。
+  bool _positionChanged = false;
+
   late final TextEditingController _captionController = TextEditingController(
     text: widget.post.caption,
   );
@@ -142,6 +158,8 @@ class _PostDetailViewState extends State<PostDetailView> {
     setState(() {
       _backupImageUrls = List<String>.of(_imageUrls);
       _backupCaption = _captionController.text;
+      _backupPosition = _position;
+      _positionChanged = false;
       _removedImageUrls.clear();
       _isEditing = true;
     });
@@ -151,6 +169,8 @@ class _PostDetailViewState extends State<PostDetailView> {
     setState(() {
       _imageUrls = List<String>.of(_backupImageUrls);
       _captionController.text = _backupCaption;
+      _position = _backupPosition;
+      _positionChanged = false;
       _removedImageUrls.clear();
       _isEditing = false;
       if (_currentImageIndex >= _imageUrls.length) {
@@ -158,6 +178,21 @@ class _PostDetailViewState extends State<PostDetailView> {
       }
     });
     _syncPageController();
+  }
+
+  /// 位置選択ページを開き、選び直した位置をプレビューへ反映する（Issue #37）。
+  /// キャンセル（null で戻る）のときは何もしない。
+  Future<void> _changeLocation() async {
+    final selected = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute<LatLng>(
+        builder: (_) => LocationPickerPage(initialPosition: _position),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _position = selected;
+      _positionChanged = true;
+    });
   }
 
   /// 現在表示中の画像を削除する。投稿には最低 1 枚の画像が必要なため、
@@ -202,6 +237,9 @@ class _PostDetailViewState extends State<PostDetailView> {
       caption: _captionController.text,
       imageUrls: _imageUrls,
       removedImageUrls: _removedImageUrls,
+      // 位置は選び直したときだけ送る。null なら既存の位置を維持する。
+      latitude: _positionChanged ? _position.latitude : null,
+      longitude: _positionChanged ? _position.longitude : null,
     );
 
     if (!mounted) {
@@ -213,6 +251,8 @@ class _PostDetailViewState extends State<PostDetailView> {
         _isSaving = false;
         _isEditing = false;
         _removedImageUrls.clear();
+        // _position は保存済みの新しい位置としてプレビュー表示に使い続ける。
+        _positionChanged = false;
       });
       messenger.showSnackBar(const SnackBar(content: Text('投稿を更新しました')));
     } else {
@@ -286,19 +326,35 @@ class _PostDetailViewState extends State<PostDetailView> {
     super.dispose();
   }
 
+  /// 写真の上に重ねる丸ボタン。スマホ幅（400px 前後）では既定サイズだと
+  /// 写真を覆って邪魔になるので、小さめに詰める。
   Widget _overlayButton({
     required IconData icon,
     required VoidCallback? onPressed,
     Color backgroundColor = Colors.black54,
+    String? tooltip,
   }) {
-    return Container(
-      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Icon(icon, color: Colors.white),
-        splashRadius: 20,
+    // IconButton は既定のタップ領域（48px）に引き伸ばされて丸が大きくなるため、
+    // 大きさを指定できる Material + InkWell で組む。
+    final button = Material(
+      color: backgroundColor,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(
+          width: _overlayButtonSize,
+          height: _overlayButtonSize,
+          child: Icon(
+            icon,
+            size: _overlayIconSize,
+            color: onPressed == null ? Colors.white38 : Colors.white,
+          ),
+        ),
       ),
     );
+
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
   }
 
   /// 投稿者情報（プロフィール画像・ユーザー名）。タップで ProfilePage へ遷移する。
@@ -375,7 +431,21 @@ class _PostDetailViewState extends State<PostDetailView> {
     ];
   }
 
+  /// 全画面ビューアを開く（Issue #45）。表示中の画像から始める。
+  void _openImageViewer() {
+    if (_imageUrls.isEmpty) return;
+    ImageViewerPage.open(
+      context,
+      imageUrls: List<String>.of(_imageUrls),
+      initialIndex: _currentImageIndex,
+    );
+  }
+
   /// 画像ギャラリー（PageView）。編集中は現在の画像を削除できる。
+  ///
+  /// 写真は縦横比がまちまちなので [BoxFit.contain] で全体を見せる
+  /// （Issue #45: 一部しか見えない）。余白は塗らずに透過させ、Dialog や
+  /// ページの背景と同化させる。タップすると全画面ビューアで拡大できる。
   ///
   /// [PostViewMode.summary] は Dialog 内のカードとして枠線を付けるが、
   /// [PostViewMode.full] は写真自体が主役なので枠線を外す。
@@ -413,20 +483,22 @@ class _PostDetailViewState extends State<PostDetailView> {
                         (MediaQuery.of(context).size.width *
                                 MediaQuery.of(context).devicePixelRatio)
                             .round();
-                    return CachedNetworkImage(
-                      imageUrl: _imageUrls[index],
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      memCacheWidth: cacheWidth,
-                      fadeInDuration: const Duration(milliseconds: 150),
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Center(
+                    // タップで全画面ビューアへ。ページ送りのスワイプは
+                    // GestureDetector の onTap と競合しない。
+                    // 余白（contain の上下左右）も背景を塗らないので、
+                    // 呼び出し元の背景がそのまま透けて見える。
+                    return GestureDetector(
+                      onTap: _openImageViewer,
+                      child: CachedNetworkImage(
+                        imageUrl: _imageUrls[index],
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.contain,
+                        memCacheWidth: cacheWidth,
+                        fadeInDuration: const Duration(milliseconds: 150),
+                        placeholder: (context, url) =>
+                            const Center(child: CircularProgressIndicator()),
+                        errorWidget: (context, url, error) => const Center(
                           child: Icon(
                             Icons.broken_image_outlined,
                             color: Colors.grey,
@@ -439,16 +511,26 @@ class _PostDetailViewState extends State<PostDetailView> {
                 ),
               ),
             ),
+            // 拡大できることが分かるようにヒントを兼ねたボタンを置く
+            Positioned(
+              top: 6,
+              left: 6,
+              child: _overlayButton(
+                icon: Icons.zoom_out_map,
+                onPressed: _openImageViewer,
+                tooltip: '写真を拡大',
+              ),
+            ),
             if (_imageUrls.length > 1) ...[
               Positioned(
-                left: 8,
+                left: 6,
                 child: _overlayButton(
                   icon: Icons.chevron_left,
                   onPressed: _currentImageIndex > 0 ? _showPreviousImage : null,
                 ),
               ),
               Positioned(
-                right: 8,
+                right: 6,
                 child: _overlayButton(
                   icon: Icons.chevron_right,
                   onPressed: _currentImageIndex < _imageUrls.length - 1
@@ -460,8 +542,8 @@ class _PostDetailViewState extends State<PostDetailView> {
             // 編集中は現在の画像を削除するボタンを表示する
             if (_isEditing)
               Positioned(
-                top: 8,
-                right: 8,
+                top: 6,
+                right: 6,
                 child: _overlayButton(
                   icon: Icons.delete,
                   onPressed: _deleteCurrentImage,
@@ -469,19 +551,16 @@ class _PostDetailViewState extends State<PostDetailView> {
                 ),
               ),
             Positioned(
-              bottom: 8,
+              bottom: 6,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.black54,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   '${_currentImageIndex + 1} / ${_imageUrls.length}',
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
             ),
@@ -492,10 +571,10 @@ class _PostDetailViewState extends State<PostDetailView> {
   }
 
   /// 場所名と地図ミニプレビュー。地図は閲覧専用（操作不可）。
+  /// 編集中は「位置を変更」ボタンを出し、位置の選び直し（Issue #37）へ進める。
   Widget _buildLocation() {
-    final post = widget.post;
-    final locationName = post.locationName ?? '';
-    final point = LatLng(post.latitude, post.longitude);
+    final locationName = widget.post.locationName ?? '';
+    final point = _position;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,6 +601,9 @@ class _PostDetailViewState extends State<PostDetailView> {
             height: _mapPreviewHeight,
             width: double.infinity,
             child: FlutterMap(
+              // FlutterMap は initialCenter の変更では再センタリングされない
+              // ため、位置が変わったら座標由来のキーで再構築する。
+              key: ValueKey('${point.latitude},${point.longitude}'),
               options: MapOptions(
                 initialCenter: point,
                 initialZoom: _mapPreviewZoom,
@@ -552,6 +634,15 @@ class _PostDetailViewState extends State<PostDetailView> {
             ),
           ),
         ),
+        // 編集中だけ位置の選び直し導線を出す
+        if (_isEditing) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _isSaving ? null : _changeLocation,
+            icon: const Icon(Icons.edit_location_alt),
+            label: const Text('位置を変更'),
+          ),
+        ],
       ],
     );
   }

@@ -71,6 +71,9 @@ class PostService {
   /// Firestore を更新した後、削除された画像（`removedImageUrls`）を Storage から
   /// 削除する。Storage の削除に失敗しても投稿の更新自体は成功扱いとする。
   ///
+  /// [latitude] と [longitude] を両方渡したときだけ投稿位置も更新する
+  /// （Issue #37）。null の場合は既存の位置を変更しない。
+  ///
   /// 画像の Storage パスはインデックス命名に依存せず、ダウンロード URL から
   /// 直接参照（`refFromURL`）して削除するため、途中の画像を削除しても
   /// 残りの画像との対応がずれない。
@@ -79,11 +82,18 @@ class PostService {
     required String caption,
     required List<String> imageUrls,
     required List<String> removedImageUrls,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       await _firestore.collection(postsCollection).doc(post.id).update({
         'caption': caption,
         'imageUrls': imageUrls,
+        // 位置は選び直したときだけ更新する（Issue #37）
+        if (latitude != null && longitude != null) ...{
+          'latitude': latitude,
+          'longitude': longitude,
+        },
         // 編集日時を記録する（PS_08）
         'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
