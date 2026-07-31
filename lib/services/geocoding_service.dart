@@ -88,9 +88,13 @@ class GeocodingService {
         return const PlaceSearchResponse.failure();
       }
 
+      // 同名・同住所の別地物（例: 城の建物と城跡の石碑）が並ぶと候補一覧で
+      // 区別が付かないため、display_name が同じものは先頭の 1 件に寄せる。
+      final seenNames = <String>{};
       final places = decoded
           .whereType<Map<String, dynamic>>()
           .map(PlaceSearchResult.fromJson)
+          .where((place) => seenNames.add(place.displayName))
           .toList();
       return PlaceSearchResponse.success(places);
     } catch (_) {

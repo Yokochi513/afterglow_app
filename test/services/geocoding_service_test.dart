@@ -107,6 +107,30 @@ void main() {
       expect(response.isSuccess, isFalse);
     });
 
+    test('display_name が同じ候補は先頭の 1 件に寄せる', () async {
+      final client = MockClient(
+        (request) async => _jsonResponse(
+          jsonEncode([
+            _fakePlaceJson(lat: '34.665', lon: '133.936'),
+            _fakePlaceJson(lat: '34.664', lon: '133.937'),
+            _fakePlaceJson(displayName: '岡山県庁, 内山下, 岡山市, 岡山県, 日本'),
+          ]),
+        ),
+      );
+      final service = GeocodingService(client: client);
+
+      final response = await service.search('岡山城');
+
+      expect(response.isSuccess, isTrue);
+      expect(response.places, hasLength(2));
+      expect(response.places.first.latitude, 34.665, reason: '先頭の候補を残す');
+      expect(
+        response.places.map((p) => p.displayName).toSet(),
+        hasLength(2),
+        reason: '同名の重複が除去されている',
+      );
+    });
+
     test('lat/lon が不正な文字列でも 0 にフォールバックする', () async {
       final client = MockClient(
         (request) async =>
