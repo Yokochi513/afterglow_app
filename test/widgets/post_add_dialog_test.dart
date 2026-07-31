@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
@@ -5,8 +8,10 @@ import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
 /// `Dialog` の `insetPadding`（上下 24）と、ダイアログ内側の `Padding`（上 16 / 下 24）。
@@ -15,7 +20,7 @@ const double _dialogInsetVertical = 24 * 2;
 const double _contentPaddingVertical = 16 + 24;
 
 /// 未初期化の Firebase に触れないよう、常にモックを注入したダイアログを組み立てる。
-Widget _dialog({required double keyboardHeight}) {
+Widget _dialog({required double keyboardHeight, List<XFile>? initialImages}) {
   final firestore = FakeFirebaseFirestore();
 
   return MaterialApp(
@@ -37,11 +42,23 @@ Widget _dialog({required double keyboardHeight}) {
               firestore: firestore,
             ),
             imageService: ImageService(),
+            initialImages: initialImages,
           ),
         );
       },
     ),
   );
+}
+
+/// [color] 一色で塗った 4x4 の PNG を生成する。
+/// 画像ごとに異なるバイト列を持たせ、並び替え後のプレビュー同期を検証する。
+Future<Uint8List> _encodePng(Color color) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(const Rect.fromLTWH(0, 0, 4, 4), Paint()..color = color);
+  final image = await recorder.endRecording().toImage(4, 4);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  return data!.buffer.asUint8List();
 }
 
 void main() {
@@ -177,5 +194,133 @@ void main() {
         .padding
         .resolve(null);
     expect(padding.bottom, closeTo(24.0 + keyboardHeight, 0.1));
+  });
+
+  group('画像の並び替え（Issue #40）', () {
+    late XFile imageA;
+    late XFile imageB;
+    late XFile imageC;
+    late Uint8List bytesA;
+    late Uint8List bytesB;
+
+    /// 3 枚の画像を選択済みの状態でダイアログを表示する。
+    Future<void> pumpWithImages(WidgetTester tester) async {
+      tester.view.physicalSize = screenSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      bytesA = await _encodePng(const Color(0xFFFF0000));
+      bytesB = await _encodePng(const Color(0xFF00FF00));
+      final bytesC = await _encodePng(const Color(0xFF0000FF));
+      imageA = XFile.fromData(bytesA, name: 'a.png');
+      imageB = XFile.fromData(bytesB, name: 'b.png');
+      imageC = XFile.fromData(bytesC, name: 'c.png');
+
+      await tester.pumpWidget(
+        _dialog(keyboardHeight: 0, initialImages: [imageA, imageB, imageC]),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// サムネイル一覧内で [image] に対応するサムネイルを探す。
+    Finder thumbnailOf(XFile image) => find.descendant(
+      of: find.byType(ReorderableListView),
+      matching: find.byKey(ObjectKey(image)),
+    );
+
+    testWidgets('画像が2枚以上のときサムネイル一覧が表示される', (tester) async {
+      await pumpWithImages(tester);
+
+      expect(find.byType(ReorderableListView), findsOneWidget);
+      expect(thumbnailOf(imageA), findsOneWidget);
+      expect(thumbnailOf(imageB), findsOneWidget);
+      expect(thumbnailOf(imageC), findsOneWidget);
+    });
+
+    testWidgets('画像が1枚のときはサムネイル一覧を表示しない', (tester) async {
+      tester.view.physicalSize = screenSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final bytes = await _encodePng(const Color(0xFFFF0000));
+      await tester.pumpWidget(
+        _dialog(
+          keyboardHeight: 0,
+          initialImages: [XFile.fromData(bytes, name: 'a.png')],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ReorderableListView), findsNothing);
+    });
+
+    testWidgets('並び替えで選択画像とプレビューの順序が同期する', (tester) async {
+      await pumpWithImages(tester);
+
+      // 先頭（表示中）の画像を末尾へ移動する
+      final list = tester.widget<ReorderableListView>(
+        find.byType(ReorderableListView),
+      );
+      list.onReorderItem!(0, 2);
+      await tester.pumpAndSettle();
+
+      // サムネイルの並びが B, C, A になっていること
+      final dxA = tester.getCenter(thumbnailOf(imageA)).dx;
+      final dxB = tester.getCenter(thumbnailOf(imageB)).dx;
+      final dxC = tester.getCenter(thumbnailOf(imageC)).dx;
+      expect(dxB, lessThan(dxC));
+      expect(dxC, lessThan(dxA));
+
+      // 先頭サムネイルのバイト列も imageB のものに入れ替わっていること
+      // （`_selectedImages` と `_previewImageBytes` の同期）
+      final firstThumbnailImage = tester.widget<Image>(
+        find.descendant(of: thumbnailOf(imageB), matching: find.byType(Image)),
+      );
+      expect((firstThumbnailImage.image as MemoryImage).bytes, same(bytesB));
+
+      // 表示中だった画像（A）を追従してプレビューし続けること
+      expect(find.text('3 / 3'), findsOneWidget);
+    });
+
+    testWidgets('長押しドラッグでサムネイルを並び替えられる', (tester) async {
+      await pumpWithImages(tester);
+
+      // タッチ端末（テスト既定は android）は長押しでドラッグを開始する
+      final gesture = await tester.startGesture(
+        tester.getCenter(thumbnailOf(imageA)),
+      );
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      // 隣のサムネイル（幅 64 + 間隔 8）の位置まで動かして離す
+      await gesture.moveBy(const Offset(80, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // 並びが B, A, C になっていること
+      final dxA = tester.getCenter(thumbnailOf(imageA)).dx;
+      final dxB = tester.getCenter(thumbnailOf(imageB)).dx;
+      final dxC = tester.getCenter(thumbnailOf(imageC)).dx;
+      expect(dxB, lessThan(dxA));
+      expect(dxA, lessThan(dxC));
+    });
+
+    testWidgets('並び替え後も画像の削除が正しく動作する', (tester) async {
+      await pumpWithImages(tester);
+
+      // 先頭の画像 A を末尾へ移動（A は表示中のまま）
+      tester
+          .widget<ReorderableListView>(find.byType(ReorderableListView))
+          .onReorderItem!(0, 2);
+      await tester.pumpAndSettle();
+
+      // 表示中の画像（末尾の A）を削除する
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(thumbnailOf(imageA), findsNothing);
+      expect(thumbnailOf(imageB), findsOneWidget);
+      expect(thumbnailOf(imageC), findsOneWidget);
+      expect(find.text('2 / 2'), findsOneWidget);
+    });
   });
 }
