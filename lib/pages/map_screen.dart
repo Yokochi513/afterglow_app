@@ -7,6 +7,7 @@ import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/release_note_service.dart';
 import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
+import 'package:afterglow_app/widgets/post_location_confirm_bar.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
 import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:afterglow_app/widgets/release_note_dialog.dart';
@@ -48,6 +49,10 @@ class _MapScreenState extends State<MapScreen> {
   /// GPS で実際に取得できた現在地。未取得の間は null で、青丸を描画しない。
   /// 地図タップで動く [_currentPos] とは別に保持する。
   LatLng? _myLocation;
+
+  /// 地図タップで選択中の投稿位置。null の間は選択マーカーも確認バーも出さない。
+  /// 再タップで置き換わる（＝位置の取り直し）。Issue #36 の確認ステップ用。
+  LatLng? _selectedPos;
 
   final PostService _postService = PostService();
   late final Stream<List<Post>> _postsStream = _postService.getPosts();
@@ -154,6 +159,24 @@ class _MapScreenState extends State<MapScreen> {
     ).showSnackBar(const SnackBar(content: Text('フォームを開けませんでした')));
   }
 
+  /// 選択中の位置で投稿ダイアログを開く。閉じたら（投稿の成否によらず）
+  /// 選択状態をクリアし、マーカーと確認バーを消す。
+  Future<void> _confirmSelectedLocation() async {
+    final pos = _selectedPos;
+    if (pos == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => PostAddDialog(pos: pos),
+    );
+    if (!mounted) return;
+    setState(() => _selectedPos = null);
+  }
+
+  /// 位置の選択をやめ、選択マーカーと確認バーを消す。
+  void _cancelSelection() {
+    setState(() => _selectedPos = null);
+  }
+
   /// 現在地を取得し、成功したら地図をそこへ移動する。
   /// 失敗（サービス無効・拒否・タイムアウト等）してもクラッシュせず、
   /// SnackBar で理由を案内する（永久拒否時は設定を開く導線を出す）。
@@ -220,6 +243,14 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
+      // 位置選択中だけ出す確認バー。bottomSheet にすると現在地 FAB が
+      // 自動で押し上げられ、ボタンと重ならない。
+      bottomSheet: _selectedPos == null
+          ? null
+          : PostLocationConfirmBar(
+              onConfirm: _confirmSelectedLocation,
+              onCancel: _cancelSelection,
+            ),
       floatingActionButton: FloatingActionButton(
         tooltip: '現在地へ移動',
         onPressed: _isLocating ? null : _moveToCurrentLocation,
@@ -262,14 +293,13 @@ class _MapScreenState extends State<MapScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all,
               ),
+              // タップは投稿位置の「選択」まで。ダイアログは確認バーの
+              // 「ここに投稿」を押したときだけ開く（Issue #36）。
               onTap: (tapPosition, latLng) {
                 setState(() {
                   _currentPos = latLng;
+                  _selectedPos = latLng;
                 });
-                showDialog<void>(
-                  context: context,
-                  builder: (context) => PostAddDialog(pos: latLng),
-                );
               },
             ),
             children: [
@@ -308,6 +338,26 @@ class _MapScreenState extends State<MapScreen> {
                   );
                 }).toList(),
               ),
+              // 選択中の投稿位置マーカー。投稿ピン（赤）と見分けられるよう
+              // テーマ色にし、最前面に描画する。再タップで位置を取り直せる
+              // よう、タップは吸わずに地図へ通す。
+              if (_selectedPos != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _selectedPos!,
+                      width: 48,
+                      height: 48,
+                      child: IgnorePointer(
+                        child: Icon(
+                          Icons.add_location_alt,
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 40,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           );
         },
