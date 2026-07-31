@@ -1,10 +1,12 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/image_viewer_page.dart';
 import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:afterglow_app/widgets/post_detail_view.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
@@ -172,6 +174,88 @@ void main() {
     expect(find.byIcon(Icons.chevron_left), findsNothing);
     expect(find.byIcon(Icons.chevron_right), findsNothing);
     expect(find.text('1 / 1'), findsOneWidget);
+  });
+
+  testWidgets('写真は切り取らず全体を表示する', (tester) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: viewerAuthService)),
+    );
+
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(image.fit, BoxFit.contain);
+  });
+
+  testWidgets('写真をタップすると全画面ビューアが開く', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        _page(
+          _post(
+            imageUrls: const [
+              'https://example.com/1.jpg',
+              'https://example.com/2.jpg',
+            ],
+          ),
+          authService: viewerAuthService,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(CachedNetworkImage).first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(ImageViewerPage), findsOneWidget);
+    // ギャラリーで表示していた写真から開く
+    expect(
+      find.descendant(
+        of: find.byType(ImageViewerPage),
+        matching: find.text('1 / 2'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('スマホ幅では写真に重ねるボタンを小さく収める', (tester) async {
+    await setScreenSize(tester, const Size(415, 900));
+
+    await tester.pumpWidget(
+      _wrap(
+        _page(
+          _post(
+            imageUrls: const [
+              'https://example.com/1.jpg',
+              'https://example.com/2.jpg',
+            ],
+          ),
+          authService: viewerAuthService,
+        ),
+      ),
+    );
+
+    for (final icon in [
+      Icons.zoom_out_map,
+      Icons.chevron_left,
+      Icons.chevron_right,
+    ]) {
+      final button = find
+          .ancestor(of: find.byIcon(icon), matching: find.byType(SizedBox))
+          .first;
+      expect(tester.getSize(button), const Size(32, 32), reason: '$icon');
+    }
+  });
+
+  testWidgets('拡大ボタンからも全画面ビューアを開ける', (tester) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: viewerAuthService)),
+    );
+
+    await tester.tap(find.byIcon(Icons.zoom_out_map));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(ImageViewerPage), findsOneWidget);
   });
 
   testWidgets('shows the location name and the map preview', (tester) async {
