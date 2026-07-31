@@ -209,9 +209,14 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      bytesA = await _encodePng(const Color(0xFFFF0000));
-      bytesB = await _encodePng(const Color(0xFF00FF00));
-      final bytesC = await _encodePng(const Color(0xFF0000FF));
+      // PNG エンコードは実際のイベントループでしか完了しないため
+      // フェイク非同期のテスト本体ではなく runAsync 内で行う。
+      late Uint8List bytesC;
+      await tester.runAsync(() async {
+        bytesA = await _encodePng(const Color(0xFFFF0000));
+        bytesB = await _encodePng(const Color(0xFF00FF00));
+        bytesC = await _encodePng(const Color(0xFF0000FF));
+      });
       imageA = XFile.fromData(bytesA, name: 'a.png');
       imageB = XFile.fromData(bytesB, name: 'b.png');
       imageC = XFile.fromData(bytesC, name: 'c.png');
@@ -242,7 +247,10 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      final bytes = await _encodePng(const Color(0xFFFF0000));
+      late Uint8List bytes;
+      await tester.runAsync(() async {
+        bytes = await _encodePng(const Color(0xFFFF0000));
+      });
       await tester.pumpWidget(
         _dialog(
           keyboardHeight: 0,
@@ -258,10 +266,11 @@ void main() {
       await pumpWithImages(tester);
 
       // 先頭（表示中）の画像を末尾へ移動する
+      // （onReorder の移動先は「取り除く前」の位置なので末尾は 3）
       final list = tester.widget<ReorderableListView>(
         find.byType(ReorderableListView),
       );
-      list.onReorderItem!(0, 2);
+      list.onReorder(0, 3);
       await tester.pumpAndSettle();
 
       // サムネイルの並びが B, C, A になっていること
@@ -289,10 +298,14 @@ void main() {
       final gesture = await tester.startGesture(
         tester.getCenter(thumbnailOf(imageA)),
       );
-      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-      // 隣のサムネイル（幅 64 + 間隔 8）の位置まで動かして離す
-      await gesture.moveBy(const Offset(80, 0));
-      await tester.pump();
+      await tester.pump(kLongPressTimeout + kPressTimeout);
+      // 隣のサムネイル（幅 64 + 間隔 8）の位置まで動かして離す。
+      // 1 回の大きな移動では挿入位置の再計算が追いつかないため、
+      // 実際のドラッグと同じように少しずつ動かす。
+      for (var i = 0; i < 4; i++) {
+        await gesture.moveBy(const Offset(20, 0));
+        await tester.pump();
+      }
       await gesture.up();
       await tester.pumpAndSettle();
 
@@ -310,7 +323,7 @@ void main() {
       // 先頭の画像 A を末尾へ移動（A は表示中のまま）
       tester
           .widget<ReorderableListView>(find.byType(ReorderableListView))
-          .onReorderItem!(0, 2);
+          .onReorder(0, 3);
       await tester.pumpAndSettle();
 
       // 表示中の画像（末尾の A）を削除する

@@ -386,7 +386,12 @@ class _PostAddDialogState extends State<PostAddDialog>
           child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: false,
-            onReorderItem: reorderImage,
+            // ReorderableListView は移動先を「取り除く前」の位置で渡すため、
+            // 後ろ方向への移動は 1 つ手前に補正して最終的な位置に直す。
+            onReorder: (oldIndex, newIndex) => reorderImage(
+              oldIndex,
+              newIndex > oldIndex ? newIndex - 1 : newIndex,
+            ),
             itemCount: _selectedImages.length,
             itemBuilder: (context, index) {
               final isCurrent = index == _currentImageIndex;
