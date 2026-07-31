@@ -19,12 +19,17 @@ class PostAddDialog extends StatefulWidget {
   final AuthService? authService;
   final ImageService? imageService;
 
+  /// テストから選択済み画像を注入するための任意の初期値。
+  /// `ImagePicker` は注入できないため、画像選択後の状態を再現する用途で使う。
+  final List<XFile>? initialImages;
+
   const PostAddDialog({
     super.key,
     required this.pos,
     this.postService,
     this.authService,
     this.imageService,
+    this.initialImages,
   });
 
   @override
@@ -73,6 +78,28 @@ class _PostAddDialogState extends State<PostAddDialog>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadInitialImages();
+  }
+
+  /// [PostAddDialog.initialImages] が指定されていれば選択済み画像として読み込む。
+  Future<void> _loadInitialImages() async {
+    final images = widget.initialImages;
+    if (images == null || images.isEmpty) {
+      return;
+    }
+    final toAdd = images.length > _maxImages
+        ? images.sublist(0, _maxImages)
+        : images;
+    final previewBytes = await Future.wait(
+      toAdd.map((image) => image.readAsBytes()),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _selectedImages.addAll(toAdd);
+      _previewImageBytes.addAll(previewBytes);
+    });
   }
 
   @override
@@ -267,6 +294,53 @@ class _PostAddDialogState extends State<PostAddDialog>
     }
   }
 
+  /// サムネイル一覧のドラッグ&ドロップで画像を並び替える。
+  /// `_selectedImages` と `_previewImageBytes` を同時に動かして同期を保ち、
+  /// 表示中だった画像を並び替え後も表示し続ける。
+  void reorderImage(int oldIndex, int newIndex) {
+    if (oldIndex == newIndex ||
+        oldIndex < 0 ||
+        oldIndex >= _selectedImages.length ||
+        newIndex < 0 ||
+        newIndex >= _selectedImages.length) {
+      return;
+    }
+
+    setState(() {
+      final image = _selectedImages.removeAt(oldIndex);
+      final bytes = _previewImageBytes.removeAt(oldIndex);
+      _selectedImages.insert(newIndex, image);
+      _previewImageBytes.insert(newIndex, bytes);
+
+      if (_currentImageIndex == oldIndex) {
+        _currentImageIndex = newIndex;
+      } else if (oldIndex < _currentImageIndex &&
+          newIndex >= _currentImageIndex) {
+        _currentImageIndex -= 1;
+      } else if (oldIndex > _currentImageIndex &&
+          newIndex <= _currentImageIndex) {
+        _currentImageIndex += 1;
+      }
+    });
+
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(_currentImageIndex);
+    }
+  }
+
+  /// サムネイルをタップしたとき、その画像をプレビューに表示する。
+  void _showImageAt(int index) {
+    if (index < 0 || index >= _selectedImages.length) {
+      return;
+    }
+    setState(() {
+      _currentImageIndex = index;
+    });
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(index);
+    }
+  }
+
   void _showPreviousImage() {
     if (_currentImageIndex > 0) {
       _pageController.previousPage(
@@ -283,6 +357,115 @@ class _PostAddDialogState extends State<PostAddDialog>
         curve: Curves.easeInOut,
       );
     }
+  }
+
+  /// サムネイル 1 枚分の一辺の長さ。
+  static const double _thumbnailSize = 64;
+
+  /// ドラッグ開始のリスナーをプラットフォームに合わせて切り替える。
+  /// タッチ端末（モバイル・モバイルブラウザ）は横スクロールと競合しないよう
+  /// 長押しで開始し、マウス操作の端末は即時ドラッグで開始する。
+  Widget _thumbnailDragListener({required int index, required Widget child}) {
+    final platform = Theme.of(context).platform;
+    final isTouchDevice =
+        platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+    return isTouchDevice
+        ? ReorderableDelayedDragStartListener(index: index, child: child)
+        : ReorderableDragStartListener(index: index, child: child);
+  }
+
+  /// 選択済み画像のサムネイル一覧。ドラッグ&ドロップで並び替えられる。
+  /// 並び順の 1 枚目がアルバム等のサムネイルとして使われる（Issue #40）。
+  Widget _buildThumbnailStrip() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        SizedBox(
+          height: _thumbnailSize + 8,
+          child: ReorderableListView.builder(
+            scrollDirection: Axis.horizontal,
+            buildDefaultDragHandles: false,
+            // ReorderableListView は移動先を「取り除く前」の位置で渡すため、
+            // 後ろ方向への移動は 1 つ手前に補正して最終的な位置に直す。
+            onReorder: (oldIndex, newIndex) => reorderImage(
+              oldIndex,
+              newIndex > oldIndex ? newIndex - 1 : newIndex,
+            ),
+            itemCount: _selectedImages.length,
+            itemBuilder: (context, index) {
+              final isCurrent = index == _currentImageIndex;
+              return Padding(
+                key: ObjectKey(_selectedImages[index]),
+                padding: const EdgeInsets.only(right: 8),
+                child: _thumbnailDragListener(
+                  index: index,
+                  child: GestureDetector(
+                    onTap: () => _showImageAt(index),
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: _thumbnailSize,
+                          height: _thumbnailSize,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: isCurrent
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey.shade400,
+                              width: isCurrent ? 2 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child: Image.memory(
+                              _previewImageBytes[index],
+                              width: _thumbnailSize,
+                              height: _thumbnailSize,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                          ),
+                        ),
+                        // 並び順の番号（1 始まり）。1 枚目がサムネイルになる
+                        Positioned(
+                          top: 2,
+                          left: 2,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'ドラッグ（タッチ操作は長押し）で並び替え。1枚目がサムネイルになります',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+        ),
+      ],
+    );
   }
 
   Widget _overlayButton({
@@ -461,6 +644,10 @@ class _PostAddDialogState extends State<PostAddDialog>
                               ),
                             ),
                           ),
+                          // 並び替え用のサムネイル一覧（Issue #40）。
+                          // 1 枚では並び替えの意味がないため 2 枚以上で表示する
+                          if (_selectedImages.length > 1)
+                            _buildThumbnailStrip(),
                           const SizedBox(height: 8),
                           // 画像枚数の表示と追加（PS_01）
                           Row(
