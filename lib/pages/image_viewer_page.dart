@@ -43,6 +43,10 @@ class ImageViewerPage extends StatefulWidget {
 }
 
 class _ImageViewerPageState extends State<ImageViewerPage> {
+  /// ページ送りボタンの大きさ。全画面でも写真の邪魔にならない程度に抑える。
+  static const double _overlayButtonSize = 40;
+  static const double _overlayIconSize = 22;
+
   late int _currentIndex = widget.initialIndex.clamp(
     0,
     widget.imageUrls.isEmpty ? 0 : widget.imageUrls.length - 1,
@@ -86,21 +90,32 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     );
   }
 
+  /// 写真の上に重ねるページ送りボタン。写真を隠しすぎないよう控えめにする。
   Widget _overlayButton({
     required IconData icon,
     required VoidCallback? onPressed,
     required String tooltip,
   }) {
-    return Container(
-      decoration: const BoxDecoration(
+    // IconButton は既定のタップ領域（48px）に引き伸ばされて丸が大きくなるため、
+    // 大きさを指定できる Material + InkWell で組む。
+    return Tooltip(
+      message: tooltip,
+      child: Material(
         color: Colors.black54,
-        shape: BoxShape.circle,
-      ),
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Icon(icon, color: Colors.white),
-        tooltip: tooltip,
-        splashRadius: 20,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(
+            width: _overlayButtonSize,
+            height: _overlayButtonSize,
+            child: Icon(
+              icon,
+              size: _overlayIconSize,
+              color: onPressed == null ? Colors.white38 : Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

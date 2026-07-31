@@ -217,6 +217,35 @@ void main() {
     );
   });
 
+  testWidgets('スマホ幅では写真に重ねるボタンを小さく収める', (tester) async {
+    await setScreenSize(tester, const Size(415, 900));
+
+    await tester.pumpWidget(
+      _wrap(
+        _page(
+          _post(
+            imageUrls: const [
+              'https://example.com/1.jpg',
+              'https://example.com/2.jpg',
+            ],
+          ),
+          authService: viewerAuthService,
+        ),
+      ),
+    );
+
+    for (final icon in [
+      Icons.zoom_out_map,
+      Icons.chevron_left,
+      Icons.chevron_right,
+    ]) {
+      final button = find
+          .ancestor(of: find.byIcon(icon), matching: find.byType(SizedBox))
+          .first;
+      expect(tester.getSize(button), const Size(32, 32), reason: '$icon');
+    }
+  });
+
   testWidgets('拡大ボタンからも全画面ビューアを開ける', (tester) async {
     await tester.pumpWidget(
       _wrap(_page(_post(), authService: viewerAuthService)),

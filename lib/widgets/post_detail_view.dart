@@ -83,6 +83,10 @@ class _PostDetailViewState extends State<PostDetailView> {
   /// [PostViewMode.full] で 2 カラムに切り替える幅。これ未満は 1 カラム。
   static const double _twoColumnBreakpoint = 900;
 
+  /// ギャラリーに重ねる丸ボタン（拡大・ページ送り・削除）の大きさ。
+  static const double _overlayButtonSize = 32;
+  static const double _overlayIconSize = 18;
+
   /// 2 カラム時の左右の幅の比と間隔。写真を主役にするため左を広く取る。
   static const int _galleryColumnFlex = 3;
   static const int _infoColumnFlex = 2;
@@ -322,21 +326,35 @@ class _PostDetailViewState extends State<PostDetailView> {
     super.dispose();
   }
 
+  /// 写真の上に重ねる丸ボタン。スマホ幅（400px 前後）では既定サイズだと
+  /// 写真を覆って邪魔になるので、小さめに詰める。
   Widget _overlayButton({
     required IconData icon,
     required VoidCallback? onPressed,
     Color backgroundColor = Colors.black54,
     String? tooltip,
   }) {
-    return Container(
-      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Icon(icon, color: Colors.white),
-        tooltip: tooltip,
-        splashRadius: 20,
+    // IconButton は既定のタップ領域（48px）に引き伸ばされて丸が大きくなるため、
+    // 大きさを指定できる Material + InkWell で組む。
+    final button = Material(
+      color: backgroundColor,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(
+          width: _overlayButtonSize,
+          height: _overlayButtonSize,
+          child: Icon(
+            icon,
+            size: _overlayIconSize,
+            color: onPressed == null ? Colors.white38 : Colors.white,
+          ),
+        ),
       ),
     );
+
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
   }
 
   /// 投稿者情報（プロフィール画像・ユーザー名）。タップで ProfilePage へ遷移する。
@@ -495,8 +513,8 @@ class _PostDetailViewState extends State<PostDetailView> {
             ),
             // 拡大できることが分かるようにヒントを兼ねたボタンを置く
             Positioned(
-              top: 8,
-              left: 8,
+              top: 6,
+              left: 6,
               child: _overlayButton(
                 icon: Icons.zoom_out_map,
                 onPressed: _openImageViewer,
@@ -505,14 +523,14 @@ class _PostDetailViewState extends State<PostDetailView> {
             ),
             if (_imageUrls.length > 1) ...[
               Positioned(
-                left: 8,
+                left: 6,
                 child: _overlayButton(
                   icon: Icons.chevron_left,
                   onPressed: _currentImageIndex > 0 ? _showPreviousImage : null,
                 ),
               ),
               Positioned(
-                right: 8,
+                right: 6,
                 child: _overlayButton(
                   icon: Icons.chevron_right,
                   onPressed: _currentImageIndex < _imageUrls.length - 1
@@ -524,8 +542,8 @@ class _PostDetailViewState extends State<PostDetailView> {
             // 編集中は現在の画像を削除するボタンを表示する
             if (_isEditing)
               Positioned(
-                top: 8,
-                right: 8,
+                top: 6,
+                right: 6,
                 child: _overlayButton(
                   icon: Icons.delete,
                   onPressed: _deleteCurrentImage,
@@ -533,19 +551,16 @@ class _PostDetailViewState extends State<PostDetailView> {
                 ),
               ),
             Positioned(
-              bottom: 8,
+              bottom: 6,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.black54,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   '${_currentImageIndex + 1} / ${_imageUrls.length}',
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
             ),
