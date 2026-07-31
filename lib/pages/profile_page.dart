@@ -158,7 +158,12 @@ class _ProfileBody extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('投稿', style: Theme.of(context).textTheme.titleMedium),
+              // 自分のプロフィールでは「ここが自分の投稿一覧」と分かる見出しに
+              // する（Issue #47）。
+              child: Text(
+                isMe ? '自分の投稿' : '投稿',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
           ),
           StreamBuilder<List<Post>>(

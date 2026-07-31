@@ -2,10 +2,12 @@ import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/pages/release_notes_page.dart';
+import 'package:afterglow_app/pages/usage_guide_page.dart';
 import 'package:afterglow_app/services/geocoding_service.dart';
 import 'package:afterglow_app/services/location_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/release_note_service.dart';
+import 'package:afterglow_app/services/usage_guide_service.dart';
 import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/map_search_bar.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
@@ -13,6 +15,7 @@ import 'package:afterglow_app/widgets/post_location_confirm_bar.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
 import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:afterglow_app/widgets/release_note_dialog.dart';
+import 'package:afterglow_app/widgets/usage_guide_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -68,6 +71,8 @@ class _MapScreenState extends State<MapScreen> {
 
   final ReleaseNoteService _releaseNoteService = ReleaseNoteService();
 
+  final UsageGuideService _usageGuideService = UsageGuideService();
+
   late final LocationService _locationService =
       widget._locationService ?? LocationService();
 
@@ -110,8 +115,31 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    // 更新後の初回起動なら、最初のフレーム描画後にリリースお知らせを自動表示する。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAnnounce());
+    // 最初のフレーム描画後に、初回起動の使い方ガイド／更新後のお知らせを出す。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showStartupDialogs());
+  }
+
+  /// 起動時に出す案内。初めての利用なら使い方ガイドを優先し、
+  /// 「新しくなりました」と重ねて出さない（Issue #47）。
+  Future<void> _showStartupDialogs() async {
+    if (await _maybeShowUsageGuide()) return;
+    await _maybeAnnounce();
+  }
+
+  /// 初回起動なら使い方ガイドを表示し、表示済みとして記録する。表示したら true。
+  /// 新規ユーザーにとって過去の変更履歴は不要なため、リリースお知らせも
+  /// 既読として記録しておく。案内の失敗はアプリ利用を妨げないため握りつぶす。
+  Future<bool> _maybeShowUsageGuide() async {
+    try {
+      if (!await _usageGuideService.shouldShowGuide()) return false;
+      if (!mounted) return false;
+      await UsageGuideDialog.show(context);
+      await _usageGuideService.markGuideShown();
+      await _releaseNoteService.markAnnounced();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 未読のバージョンがあればリリースお知らせダイアログを表示し、既読として記録する。
@@ -239,6 +267,11 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: const Text('Map'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: '使い方',
+            onPressed: () => UsageGuidePage.open(context),
+          ),
           IconButton(
             icon: const Icon(Icons.feedback_outlined),
             tooltip: 'フィードバック',
