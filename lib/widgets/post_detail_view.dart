@@ -425,9 +425,9 @@ class _PostDetailViewState extends State<PostDetailView> {
 
   /// 画像ギャラリー（PageView）。編集中は現在の画像を削除できる。
   ///
-  /// 写真は縦横比がまちまちなので [BoxFit.contain] で全体を見せ、余白は
-  /// 黒で埋める（Issue #45: 一部しか見えない）。タップすると全画面ビューアで
-  /// 拡大できる。
+  /// 写真は縦横比がまちまちなので [BoxFit.contain] で全体を見せる
+  /// （Issue #45: 一部しか見えない）。余白は塗らずに透過させ、Dialog や
+  /// ページの背景と同化させる。タップすると全画面ビューアで拡大できる。
   ///
   /// [PostViewMode.summary] は Dialog 内のカードとして枠線を付けるが、
   /// [PostViewMode.full] は写真自体が主役なので枠線を外す。
@@ -450,54 +450,46 @@ class _PostDetailViewState extends State<PostDetailView> {
             Positioned.fill(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: ColoredBox(
-                  color: Colors.black,
-                  child: PageView.builder(
-                    controller: _pageController,
-                    itemCount: _imageUrls.length,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _currentImageIndex = index;
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      // 表示サイズに合わせてデコードし、メモリ使用量と
-                      // デコード時間を抑える
-                      final cacheWidth =
-                          (MediaQuery.of(context).size.width *
-                                  MediaQuery.of(context).devicePixelRatio)
-                              .round();
-                      // タップで全画面ビューアへ。ページ送りのスワイプは
-                      // GestureDetector の onTap と競合しない。
-                      return GestureDetector(
-                        onTap: _openImageViewer,
-                        child: CachedNetworkImage(
-                          imageUrl: _imageUrls[index],
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.contain,
-                          memCacheWidth: cacheWidth,
-                          fadeInDuration: const Duration(milliseconds: 150),
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey.shade200,
-                            child: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            color: Colors.grey.shade200,
-                            child: const Center(
-                              child: Icon(
-                                Icons.broken_image_outlined,
-                                color: Colors.grey,
-                                size: 40,
-                              ),
-                            ),
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _imageUrls.length,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _currentImageIndex = index;
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    // 表示サイズに合わせてデコードし、メモリ使用量と
+                    // デコード時間を抑える
+                    final cacheWidth =
+                        (MediaQuery.of(context).size.width *
+                                MediaQuery.of(context).devicePixelRatio)
+                            .round();
+                    // タップで全画面ビューアへ。ページ送りのスワイプは
+                    // GestureDetector の onTap と競合しない。
+                    // 余白（contain の上下左右）も背景を塗らないので、
+                    // 呼び出し元の背景がそのまま透けて見える。
+                    return GestureDetector(
+                      onTap: _openImageViewer,
+                      child: CachedNetworkImage(
+                        imageUrl: _imageUrls[index],
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.contain,
+                        memCacheWidth: cacheWidth,
+                        fadeInDuration: const Duration(milliseconds: 150),
+                        placeholder: (context, url) =>
+                            const Center(child: CircularProgressIndicator()),
+                        errorWidget: (context, url, error) => const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.grey,
+                            size: 40,
                           ),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
