@@ -111,6 +111,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('キーボード表示時は画像プレビューが縮んで入力欄の余地を確保する', (tester) async {
+    const keyboardHeight = 300.0;
+    await pumpWithKeyboard(tester, keyboardHeight);
+
+    // スクロール領域の高さ 312（700 - 300 - 48 - 40）から入力欄用の 280 を
+    // 引くと最小高さ 96 を下回るため、プレビューは最小高さまで縮む。
+    final previewRect = tester.getRect(find.byType(AspectRatio));
+    expect(previewRect.height, closeTo(96.0, 1.0));
+  });
+
+  testWidgets('キーボード非表示時は画像プレビューが幅いっぱいの 4:3 のまま', (tester) async {
+    await pumpWithKeyboard(tester, 0);
+
+    // 幅 320（400 - insetPadding 48 - 内側 Padding 32）に対する 4:3 の高さ。
+    // 高さに余裕があるためプレビューは縮まない。
+    final previewRect = tester.getRect(find.byType(AspectRatio));
+    expect(previewRect.width, closeTo(320.0, 5.0));
+    expect(previewRect.height, closeTo(240.0, 5.0));
+  });
+
+  testWidgets('キーボード表示中に画面外の入力欄へフォーカスするとスクロールして表示される', (tester) async {
+    const keyboardHeight = 300.0;
+    await pumpWithKeyboard(tester, keyboardHeight);
+
+    final tagField = find.widgetWithText(TextField, 'タグ（例: #夜景 #桜）');
+    final scrollRect = tester.getRect(find.byType(SingleChildScrollView));
+
+    // タグ入力欄はスクロール領域の外にあることを前提とする
+    expect(tester.getRect(tagField).top, greaterThan(scrollRect.bottom));
+
+    // タップの代わりにフォーカスだけ当てる（画面外でもフォーカスは可能）
+    await tester.showKeyboard(tagField);
+    await tester.pump();
+    // フォーカス後のスクロール補正（350ms 待ち + 150ms アニメーション）
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    final tagRect = tester.getRect(tagField);
+    expect(tagRect.top, greaterThanOrEqualTo(scrollRect.top - 1.0));
+    expect(tagRect.bottom, lessThanOrEqualTo(scrollRect.bottom + 1.0));
+
+    // ビューポート変化時の補正タイマーがテスト終了後に残らないよう解除する
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+  });
+
   testWidgets('キーボードインセットを処理する AnimatedPadding は Dialog の 1 つだけ', (
     tester,
   ) async {
