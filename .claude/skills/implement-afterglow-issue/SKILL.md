@@ -36,25 +36,32 @@ Afterglow is a Flutter + Firebase app (`lib/` Flutter client, `functions/` TypeS
 
    Run it in the background (`run_in_background`) — implementation runs routinely exceed the foreground timeout. Wait for completion before proceeding; never fabricate its result.
 
+   **Never pipe the Codex invocation into `tail`, `head`, `grep`, or any other filter.** Those buffer the whole stream, so the background output file stays empty until the process exits — you get zero visibility for the entire run, and a hang is indistinguishable from normal progress. Run the command bare and read the background output file directly when you need to check on it.
+
+8. **Watch for a stall.** Codex hanging silently is a real failure mode — it has burned multi-hour runs after making only its first edit. Do not equate "still running" with "making progress":
+   - The authoritative progress signal is **file mtime**, not process liveness: `ls -l` the files Codex is expected to touch. A `codex.exe` that is alive but has not written anything for a long stretch is hung, not thinking.
+   - Treat **no file change for ~20 minutes** as a stall. Stop the task (`TaskStop`), then fall back to implementing directly per the Operating Rules — keep whatever partial diff Codex produced, but review it as untrusted (see below).
+   - If you arm a polling monitor, keep the interval at **60s or longer** and do not run `git status` in the loop — a tight poll loop contends with Codex over the repo and can make `git` itself hang.
+
 ### 3. Validate and auto-iterate (Claude)
 
-8. After Codex finishes, run every validation that applies to the touched files (see Validation below). Do not ask the user between rounds.
-9. If validation fails or acceptance criteria are unmet, resume the same Codex session with the exact failure output and what remains:
+9. After Codex finishes, run every validation that applies to the touched files (see Validation below). Do not ask the user between rounds.
+10. If validation fails or acceptance criteria are unmet, resume the same Codex session with the exact failure output and what remains:
 
    ```bash
    codex exec resume --last -o <scratchpad>/codex_last.txt - < <scratchpad>/codex_fix.md
    ```
 
    Repeat validate → resume up to **3 fix rounds**. If still failing after that, stop, keep the branch, and report the remaining failures to the user instead of opening a PR.
-10. Review the final diff yourself: no `docs/` edits, no secrets or generated artifacts (`build/`, `functions/lib/`, keys, `.env`), no unrelated changes, every acceptance criterion mapped to a change or verification. Revert any forbidden files Codex touched (`git checkout -- <path>`) and re-validate. Small residual gaps (e.g. missing `dart format`) may be fixed directly by Claude rather than spending a Codex round.
+11. Review the final diff yourself: no `docs/` edits, no secrets or generated artifacts (`build/`, `functions/lib/`, keys, `.env`), no unrelated changes, every acceptance criterion mapped to a change or verification. Revert any forbidden files Codex touched (`git checkout -- <path>`) and re-validate. Small residual gaps (e.g. missing `dart format`) may be fixed directly by Claude rather than spending a Codex round.
 
 ### 4. Ship (Claude, automatic)
 
-11. Commit, push, and open the PR **without asking for confirmation** — the PR is the human review gate:
+12. Commit, push, and open the PR **without asking for confirmation** — the PR is the human review gate:
     - Commit message and PR title/body in **Japanese**, Conventional Commits subject (`feat: ...`, `fix: ...`).
     - PR targets `dev`, body lists `Closes #<number>`, a checklist of satisfied acceptance criteria, the exact validation commands with results, and a note that implementation was performed by Codex CLI orchestrated by Claude.
     - Follow the `1 Issue = 1 branch = 1 PR` rule.
-12. Report to the user: PR URL, commit hash, validation results, number of Codex fix rounds used, and anything intentionally left out.
+13. Report to the user: PR URL, commit hash, validation results, number of Codex fix rounds used, whether Codex stalled and triggered the direct-implementation fallback, and anything intentionally left out.
 
 ## Operating Rules
 
@@ -62,7 +69,8 @@ Afterglow is a Flutter + Firebase app (`lib/` Flutter client, `functions/` TypeS
 - Do not add dependencies beyond the Issue scope. Existing stack: `flutter_map` + `latlong2` (map), Firebase (`firebase_auth`, `cloud_firestore`, `firebase_storage`), test mocks listed above.
 - Stop and report genuine product ambiguity instead of letting Codex invent behavior; everything else proceeds automatically.
 - Never commit secrets or generated outputs: service-account keys, `.env`, APNs keys, `*.keystore`, new `google-services.json` / `GoogleService-Info.plist`, `build/`, `functions/lib/`, or unrelated user changes. `lib/firebase_options.dart` and `.firebaserc` are already tracked — leave them as-is unless the Issue requires a change.
-- If the `codex` CLI is unavailable or errors out before producing changes, fall back to implementing directly (same rules and validation), and tell the user the fallback was used.
+- If the `codex` CLI is unavailable, errors out, or **stalls** (see step 8), fall back to implementing directly (same rules and validation), and tell the user the fallback was used.
+- A partial diff from a stalled or failed Codex run is **untrusted work in progress** — it may not even compile. Review it line by line and run the full validation before building on it, rather than assuming the finished parts are sound.
 
 ## Validation
 
