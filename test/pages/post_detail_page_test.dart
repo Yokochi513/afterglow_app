@@ -1,4 +1,5 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
@@ -485,6 +486,85 @@ void main() {
     expect(List<String>.from(snapshot.data()?['imageUrls']), const [
       'https://example.com/2.jpg',
     ]);
+  });
+
+  testWidgets('編集モードで「位置を変更」ボタンを表示する', (tester) async {
+    await tester.pumpWidget(
+      _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
+    );
+
+    expect(find.text('位置を変更'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pump();
+
+    expect(find.text('位置を変更'), findsOneWidget);
+  });
+
+  testWidgets('位置を選び直して保存すると緯度経度が更新される', (tester) async {
+    final firestore = FakeFirebaseFirestore();
+    await firestore.collection(PostService.postsCollection).doc('post-1').set({
+      'userId': 'user-1',
+      'caption': 'sunset view',
+      'imageUrls': const ['https://example.com/1.jpg'],
+      'latitude': 35.0,
+      'longitude': 139.0,
+    });
+    final postService = PostService(
+      firestore: firestore,
+      storage: MockFirebaseStorage(),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        _page(
+          _post(),
+          authService: _authServiceFor('user-1'),
+          postService: postService,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pump();
+
+    final changeButton = find.text('位置を変更');
+    await tester.ensureVisible(changeButton);
+    await tester.pump();
+    await tester.tap(changeButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    // 位置選択ページの地図を中心からずらしてタップし、新しい位置を選ぶ
+    final pickerMap = find.descendant(
+      of: find.byType(LocationPickerPage),
+      matching: find.byType(FlutterMap),
+    );
+    await tester.tapAt(tester.getCenter(pickerMap) + const Offset(80, 80));
+    // flutter_map はダブルタップと区別するためシングルタップを遅延処理する
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('この場所にする'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final saveButton = find.widgetWithText(TextButton, '保存');
+    await tester.ensureVisible(saveButton);
+    await tester.pump();
+    await tester.tap(saveButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final data =
+        (await firestore
+                .collection(PostService.postsCollection)
+                .doc('post-1')
+                .get())
+            .data();
+    // 中心からずらした分だけ元の座標から動いている
+    expect(data!['latitude'], isNot(35.0));
+    expect(data['longitude'], isNot(139.0));
+    expect(data['latitude'], closeTo(35.0, 0.1));
+    expect(data['longitude'], closeTo(139.0, 0.1));
   });
 
   testWidgets('does not delete the last remaining photo', (tester) async {
