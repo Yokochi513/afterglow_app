@@ -31,6 +31,17 @@ class CommentService {
         );
   }
 
+  /// 指定投稿のコメント数を購読する。
+  ///
+  /// `posts/{postId}.commentCount` の非正規化カウントは投稿作成時に 0 が入るだけで
+  /// 更新されない（コメント投稿者は他人の投稿ドキュメントを更新できない・§7.2）ため、
+  /// 実数はサブコレクションから数える（Issue #58 / #59）。
+  Stream<int> getCommentCount(String postId) {
+    return _commentsRef(
+      postId,
+    ).snapshots().map((snapshot) => snapshot.docs.length);
+  }
+
   /// コメントを追加する。[comment] の `id` が空文字なら Firestore が採番する。
   Future<bool> addComment(Comment comment) async {
     try {
