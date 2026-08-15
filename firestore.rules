@@ -56,10 +56,30 @@ service cloud.firestore {
 
     // 投稿
     match /posts/{postId} {
+      // いいね（reactions）は投稿者以外も付けられるため、非正規化カウント
+      // `likeCount` の ±1 だけは他人の投稿にも許可する。これを許さないと
+      // ReactionService.toggleReaction のトランザクションが丸ごと失敗し、
+      // 他人の投稿にいいねできなくなる（Issue #62）。
+      // 変更できるのは likeCount 1 フィールドのみで、増減幅も ±1 に限る。
+      // 表示上のいいね数は reactions サブコレクションの実数なので、仮に
+      // このカウントを不正に増減されても UI の数字には影響しない。
+      function isLikeCountOnlyUpdate() {
+        return request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['likeCount'])
+          && (request.resource.data.likeCount
+                == resource.data.get('likeCount', 0) + 1
+            || request.resource.data.likeCount
+                == resource.data.get('likeCount', 0) - 1);
+      }
+
       allow read: if isApproved();
       allow create: if isApproved()
         && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isApproved()
+      allow update: if isApproved()
+        && (resource.data.userId == request.auth.uid
+          || isAdmin()
+          || isLikeCountOnlyUpdate());
+      allow delete: if isApproved()
         && (resource.data.userId == request.auth.uid || isAdmin());
 
       // コメント
