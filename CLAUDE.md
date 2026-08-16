@@ -75,6 +75,15 @@ npm --prefix functions ci
 npm --prefix functions run build                  # tsc。lint/test スクリプトは未定義
 ```
 
+Firestore セキュリティルール（`firestore.rules` を変更したときのみ）:
+
+```bash
+npm --prefix test/rules ci                        # 初回・依存更新時
+npm --prefix test/rules test                      # エミュレータ上でルールを評価
+```
+
+Java と firebase CLI が要る。Dart 側のテストは `fake_cloud_firestore` を使っており**ルールを一切評価しない**ため、クライアントの書き込みがルールで拒否される類の不具合はこのテストでしか検出できない（詳細は `test/rules/README.md`）。なお**ルールは自動デプロイされない**。反映には `firebase deploy --only firestore:rules` が別途必要。
+
 Flutter が出力前に固まる場合は Flutter/Dart プロセスと SDK キャッシュのロックを確認する（キャッシュ書き込み権限が必要なことがある）。
 
 ## 正典ドキュメント（読み取り専用）
