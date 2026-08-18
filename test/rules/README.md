@@ -9,7 +9,8 @@ Dart 側のテストは `fake_cloud_firestore` を使っておりルールを一
 
 ## 実行
 
-Java（エミュレータの実行に必要）と firebase CLI が要る。
+Java（エミュレータの実行に必要）が要る。firebase CLI は devDependencies の
+`firebase-tools` を使うので、グローバルインストールは不要。
 
 ```bash
 npm --prefix test/rules ci      # 初回・依存更新時

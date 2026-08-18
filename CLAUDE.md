@@ -82,7 +82,7 @@ npm --prefix test/rules ci                        # 初回・依存更新時
 npm --prefix test/rules test                      # エミュレータ上でルールを評価
 ```
 
-Java と firebase CLI が要る。Dart 側のテストは `fake_cloud_firestore` を使っており**ルールを一切評価しない**ため、クライアントの書き込みがルールで拒否される類の不具合はこのテストでしか検出できない（詳細は `test/rules/README.md`）。ルールは `.github/workflows/firestore-rules.yml` が扱う: ルール関連ファイルを含む PR ではこのテストが CI で走り、`main` への push で本番へ自動デプロイされる（リポジトリシークレット `FIREBASE_SERVICE_ACCOUNT` が必要）。手動で反映するなら `firebase deploy --only firestore:rules,storage`。`--only storage:rules` は**エラーになる**（`storage:<デプロイターゲット名>` と解釈されるため）。
+Java が要る（firebase CLI は `test/rules` の devDependencies に含む）。Dart 側のテストは `fake_cloud_firestore` を使っており**ルールを一切評価しない**ため、クライアントの書き込みがルールで拒否される類の不具合はこのテストでしか検出できない（詳細は `test/rules/README.md`）。ルールは `.github/workflows/firestore-rules.yml` が扱う: ルール関連ファイルを含む PR ではこのテストが CI で走り、`main` への push で本番へ自動デプロイされる（リポジトリシークレット `FIREBASE_SERVICE_ACCOUNT` が必要）。手動で反映するなら `firebase deploy --only firestore:rules,storage`。`--only storage:rules` は**エラーになる**（`storage:<デプロイターゲット名>` と解釈されるため）。
 
 Flutter が出力前に固まる場合は Flutter/Dart プロセスと SDK キャッシュのロックを確認する（キャッシュ書き込み権限が必要なことがある）。
 
