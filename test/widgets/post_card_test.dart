@@ -1,5 +1,6 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/comment_service.dart';
 import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:afterglow_app/widgets/post_card.dart';
@@ -31,11 +32,13 @@ Post _post({
 }
 
 /// 未初期化の Firebase に触れないよう、常にモックを注入したサービスを使う。
-/// [username] を渡すと投稿者の users ドキュメントを、[reactionCount] を渡すと
-/// その数だけ posts/post-1/reactions のドキュメントを用意する。
+/// [username] を渡すと投稿者の users ドキュメントを、[reactionCount] /
+/// [commentCount] を渡すとその数だけ posts/post-1 のサブコレクション
+/// （reactions / comments）のドキュメントを用意する。
 Future<FakeFirebaseFirestore> _firestoreWith({
   String? username,
   int reactionCount = 0,
+  int commentCount = 0,
 }) async {
   final firestore = FakeFirebaseFirestore();
 
@@ -60,6 +63,20 @@ Future<FakeFirebaseFirestore> _firestoreWith({
         });
   }
 
+  for (var index = 0; index < commentCount; index++) {
+    await firestore
+        .collection(CommentService.postsCollection)
+        .doc('post-1')
+        .collection(CommentService.commentsCollection)
+        .doc('comment-$index')
+        .set({
+          'postId': 'post-1',
+          'userId': 'commenter-$index',
+          'text': 'コメント $index',
+          'createdAt': Timestamp.fromDate(DateTime(2026, 4, 18)),
+        });
+  }
+
   return firestore;
 }
 
@@ -79,12 +96,17 @@ Widget _card(
     ),
     authService: AuthService(auth: MockFirebaseAuth(), firestore: firestore),
     reactionService: ReactionService(firestore: firestore),
+    commentService: CommentService(firestore: firestore),
   );
 }
 
 void main() {
   testWidgets('shows the caption, tags and counts', (tester) async {
-    final firestore = await _firestoreWith(username: 'ヨコチ', reactionCount: 4);
+    final firestore = await _firestoreWith(
+      username: 'ヨコチ',
+      reactionCount: 4,
+      commentCount: 2,
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -103,6 +125,23 @@ void main() {
     expect(find.text('4'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
   });
+
+  // Issue #58 / #59: posts の commentCount は更新されないため、コメント数は
+  // サブコレクションの実数を表示する。
+  testWidgets(
+    'shows the actual comment count even when commentCount is stale',
+    (tester) async {
+      final firestore = await _firestoreWith(username: 'ヨコチ', commentCount: 3);
+
+      await tester.pumpWidget(
+        _wrap(_card(_post(tags: const [], commentCount: 0), firestore)),
+      );
+      await tester.pump();
+
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('0'), findsOneWidget); // いいね数のみ 0
+    },
+  );
 
   testWidgets('falls back to a placeholder name when the author is unknown', (
     tester,
