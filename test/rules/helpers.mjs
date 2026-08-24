@@ -17,9 +17,13 @@ function emulatorAddress() {
 
 /// テスト用の Firestore 環境を作る。プロジェクトIDは `demo-` 始まりにして
 /// 実プロジェクトへ接続しないようにする。
-export function createTestEnv() {
+///
+/// `node --test` はテストファイルを並列に実行するため、テストファイルごとに
+/// 別のプロジェクトIDを渡すこと。同じIDを共有すると、片方の `clearFirestore()`
+/// がもう片方の前提データを消してしまい、無関係なテストが落ちる。
+export function createTestEnv(projectId) {
   return initializeTestEnvironment({
-    projectId: 'demo-afterglow',
+    projectId: `demo-afterglow-${projectId}`,
     firestore: { rules: readFileSync(rulesPath, 'utf8'), ...emulatorAddress() },
   });
 }
@@ -33,4 +37,9 @@ export function seed(testEnv, write) {
 /// 承認済みユーザーとしての Firestore。
 export function approved(testEnv, uid) {
   return testEnv.authenticatedContext(uid).firestore();
+}
+
+/// 未ログイン状態の Firestore。
+export function signedOut(testEnv) {
+  return testEnv.unauthenticatedContext().firestore();
 }

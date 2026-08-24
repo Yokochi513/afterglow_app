@@ -21,7 +21,7 @@ describe('posts のルール', () => {
 
   /// author が投稿者、liker は別の承認済みユーザー、pending は未承認。
   before(async () => {
-    testEnv = await createTestEnv();
+    testEnv = await createTestEnv('posts');
   });
 
   after(async () => {

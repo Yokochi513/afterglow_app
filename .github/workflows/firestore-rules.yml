@@ -1,0 +1,105 @@
+name: Firestore / Storage ルール
+
+# セキュリティルールは Web ビルド（deploy.yml）とは別物で、以前は手動デプロイ
+# だったため本番へ反映し忘れる事故が起きた（Issue #61）。ルール関連のファイルが
+# 変わったときだけ、PR ではエミュレータでテストし、main では本番へ反映する。
+on:
+  push:
+    branches: [main]
+    paths:
+      - firestore.rules
+      - storage.rules
+      - firebase.json
+      - test/rules/**
+      - .github/workflows/firestore-rules.yml
+  pull_request:
+    paths:
+      - firestore.rules
+      - storage.rules
+      - firebase.json
+      - test/rules/**
+      - .github/workflows/firestore-rules.yml
+  # 反映し忘れの復旧用に手動実行も可能（main で実行するとデプロイまで行う）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# ルールの反映は最新の 1 つだけでよいが、途中で止めると中途半端な状態に
+# なりうるので実行中のものはキャンセルしない
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: ルールのテスト
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: test/rules/package-lock.json
+
+      # Firestore エミュレータの実行に必要
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm --prefix test/rules ci
+
+      - name: Run rules tests
+        run: npm --prefix test/rules test
+
+  deploy:
+    name: ルールのデプロイ
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 認証情報が無いと firebase-tools が分かりにくいエラーで落ちるため、
+      # 先に明示的に落として原因が分かるようにする
+      - name: Check credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::シークレット FIREBASE_SERVICE_ACCOUNT が未設定です。Firebase Admin SDK のサービスアカウント鍵（JSON）を登録してください。"
+            exit 1
+          fi
+
+      - name: Write service account key
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+
+      # `--only storage` は storage.rules を指す。`storage:rules` はデプロイ
+      # ターゲット名の指定と解釈されエラーになるので使わない
+      - name: Deploy rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: >
+          npx --yes firebase-tools@15 deploy
+          --only firestore:rules,storage
+          --project flutter-afterglow
+          --non-interactive
+
+      - name: Remove service account key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
