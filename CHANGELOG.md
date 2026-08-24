@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+## [1.3.1+4] - 2026-08-24
+
+### Changed
+
+- 下部メニューから「投稿」タブを削除しました。投稿は地図画面のボタンから行えます。
+
+### Security
+
+- 本番のデータベースに、認証・承認にもとづくアクセス制限を適用しました。投稿や写真を見られるのは承認済みのメンバーだけになり、投稿の編集・削除も本人（と管理者）に限られます。以後、ルールの変更は自動で本番に反映されます。
+
+### Fixed
+
+- フィード画面で、コメントが付いている投稿のコメント数が 0 のままだった問題を修正しました。実際の件数が表示され、コメントの追加・削除にもすぐ反映されます。
+- 自分以外の投稿にいいねできないことがあった問題を修正しました。
+- 地図を指で回転できてしまい、向きが分かりにくくなる問題を修正しました。地図は常に北が上に固定されます。
+
 ## [1.3.0+3] - 2026-08-01
 
 ### Added
@@ -75,7 +91,8 @@
 
 - Firestore / Storage のセキュリティルールで承認済みユーザーのみを許可。
 
-[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.1...HEAD
+[1.3.1+4]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.0...v1.3.1
 [1.3.0+3]: https://github.com/Yokochi513/afterglow_app/compare/v1.2.0...v1.3.0
 [1.2.0+2]: https://github.com/Yokochi513/afterglow_app/compare/v1.0...v1.2.0
 [1.0.0+1]: https://github.com/Yokochi513/afterglow_app/releases/tag/v1.0

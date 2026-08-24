@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/post_detail_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/comment_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
@@ -23,6 +24,7 @@ class FeedPage extends StatefulWidget {
     this.userService,
     this.authService,
     this.reactionService,
+    this.commentService,
   });
 
   /// テスト時に差し替え可能。null の場合はビルド時に既定インスタンスを生成する。
@@ -32,6 +34,9 @@ class FeedPage extends StatefulWidget {
   /// [ReactionBar] へ渡す。テスト時に差し替え可能。
   final AuthService? authService;
   final ReactionService? reactionService;
+
+  /// [PostCard] のコメント数表示と [CommentSection] へ渡す。テスト時に差し替え可能。
+  final CommentService? commentService;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
@@ -146,7 +151,12 @@ class _FeedPageState extends State<FeedPage> {
             authService: widget.authService,
             reactionService: widget.reactionService,
           ),
-          commentSection: CommentSection(post: post),
+          commentSection: CommentSection(
+            post: post,
+            authService: widget.authService,
+            userService: widget.userService,
+            commentService: widget.commentService,
+          ),
         ),
       ),
     );
@@ -194,6 +204,7 @@ class _FeedPageState extends State<FeedPage> {
           userService: widget.userService,
           authService: widget.authService,
           reactionService: widget.reactionService,
+          commentService: widget.commentService,
           onTap: () => _openDetail(post),
         );
       },

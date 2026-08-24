@@ -1,6 +1,7 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/comment_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
@@ -50,6 +51,7 @@ void main() {
           firestore: firestore,
         ),
         reactionService: ReactionService(firestore: firestore),
+        commentService: CommentService(firestore: firestore),
       ),
     );
   }

@@ -113,6 +113,40 @@ void main() {
       expect(comments.first.text, 'post-1 のコメント');
     });
 
+    test('getCommentCount counts the comments of the given post', () async {
+      await service.addComment(
+        Comment(
+          id: '',
+          postId: 'post-1',
+          userId: 'user-1',
+          text: '1件目',
+          createdAt: DateTime(2026, 7, 15),
+        ),
+      );
+      await service.addComment(
+        Comment(
+          id: '',
+          postId: 'post-1',
+          userId: 'user-2',
+          text: '2件目',
+          createdAt: DateTime(2026, 7, 16),
+        ),
+      );
+      await service.addComment(
+        Comment(
+          id: '',
+          postId: 'post-2',
+          userId: 'user-1',
+          text: '別投稿のコメント',
+          createdAt: DateTime(2026, 7, 16),
+        ),
+      );
+
+      expect(await service.getCommentCount('post-1').first, 2);
+      expect(await service.getCommentCount('post-2').first, 1);
+      expect(await service.getCommentCount('post-3').first, 0);
+    });
+
     test('updateComment changes the text and records updatedAt', () async {
       await service.addComment(
         Comment(

@@ -1,5 +1,6 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/comment_service.dart';
 import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:afterglow_app/widgets/reaction_bar.dart';
@@ -19,6 +20,7 @@ class PostCard extends StatefulWidget {
     this.userService,
     this.authService,
     this.reactionService,
+    this.commentService,
   });
 
   final Post post;
@@ -28,6 +30,7 @@ class PostCard extends StatefulWidget {
   final UserService? userService;
   final AuthService? authService;
   final ReactionService? reactionService;
+  final CommentService? commentService;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -37,6 +40,13 @@ class _PostCardState extends State<PostCard> {
   static const double _thumbnailSize = 96;
 
   late final UserService _userService = widget.userService ?? UserService();
+  late final CommentService _commentService =
+      widget.commentService ?? CommentService();
+
+  /// コメント数の購読。build のたびに作り直すと購読し直しになるため保持する。
+  late final Stream<int> _commentCount = _commentService.getCommentCount(
+    widget.post.id,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -156,7 +166,10 @@ class _PostCardState extends State<PostCard> {
   }
 
   /// いいね（トグル可能）とコメント数。
-  /// コメント数は posts の非正規化フィールドをそのまま表示する。
+  ///
+  /// コメント数は `posts/{postId}/comments` の購読で実数を表示する。posts の
+  /// 非正規化フィールド（`commentCount`）は更新されず常に 0 のままなので、
+  /// これをそのまま出すとコメントが反映されない（Issue #58 / #59）。
   Widget _buildCounts(Post post) {
     final style = Theme.of(context).textTheme.labelMedium;
 
@@ -171,7 +184,13 @@ class _PostCardState extends State<PostCard> {
         const SizedBox(width: 16),
         const Icon(Icons.mode_comment_outlined, size: 16),
         const SizedBox(width: 4),
-        Text('${post.commentCount}', style: style),
+        StreamBuilder<int>(
+          stream: _commentCount,
+          // 購読が始まるまでは投稿の非正規化カウントを表示し、数字のちらつきを防ぐ。
+          initialData: post.commentCount,
+          builder: (context, snapshot) =>
+              Text('${snapshot.data ?? post.commentCount}', style: style),
+        ),
       ],
     );
   }

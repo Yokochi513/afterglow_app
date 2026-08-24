@@ -43,6 +43,11 @@ class ReactionService {
   ///
   /// リアクションドキュメントの有無と likeCount の更新がずれないよう、
   /// トランザクションで一括して行う。
+  ///
+  /// 投稿ドキュメントの更新は通常なら投稿者本人と管理者に限られるが、他人の
+  /// 投稿にもいいねできるよう、Firestore ルールが `likeCount` の ±1 のみを
+  /// 例外的に許可している（§7.2 / Issue #62）。ここで likeCount 以外の
+  /// フィールドを同時に更新すると、他人の投稿へのいいねが全て失敗する。
   Future<void> toggleReaction(String postId, String userId) {
     return _firestore.runTransaction((transaction) async {
       final reactionRef = _reactionRef(postId, userId);
