@@ -57,6 +57,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         options: MapOptions(
           initialCenter: widget.initialPosition,
           initialZoom: _initialZoom,
+          // Issue #57: 意図せず地図の向きが変わって使いにくいため、回転ジェスチャーだけ無効化する。
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+          ),
           onTap: (tapPosition, latLng) {
             setState(() => _selectedPos = latLng);
           },

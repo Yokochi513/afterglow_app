@@ -293,6 +293,10 @@ class _EventEditDialogState extends State<EventEditDialog> {
               options: MapOptions(
                 initialCenter: picked ?? _defaultLocation,
                 initialZoom: 14,
+                // Issue #57: 意図せず地図の向きが変わって使いにくいため、回転ジェスチャーだけ無効化する。
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                ),
                 onTap: _isSaving
                     ? null
                     : (_, latLng) => setState(() => _pickedLocation = latLng),

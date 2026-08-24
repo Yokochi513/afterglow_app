@@ -361,8 +361,9 @@ class _MapScreenState extends State<MapScreen> {
           options: MapOptions(
             initialCenter: _currentPos,
             initialZoom: _defaultZoom,
+            // Issue #57: 意図せず地図の向きが変わって使いにくいため、回転ジェスチャーだけ無効化する。
             interactionOptions: const InteractionOptions(
-              flags: InteractiveFlag.all,
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
             ),
             // タップは投稿位置の「選択」まで。ダイアログは確認バーの
             // 「ここに投稿」を押したときだけ開く（Issue #36）。
