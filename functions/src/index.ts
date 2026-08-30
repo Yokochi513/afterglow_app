@@ -25,23 +25,37 @@ const MAIL_COLLECTION = "mail";
 const USERS_COLLECTION = "users";
 const APPROVALS_COLLECTION = "registrationApprovals";
 
+// メールアドレス等の個人情報を格納する非公開サブコレクション（本人のみ
+// 読み書き可。firestore.rules 参照）のドキュメントパス
+const PRIVATE_PROFILE_DOC = "private/profile";
+
 /**
- * users/{uid} 作成時に発火。承認トークンを生成し、管理者へ承認依頼メールを
- * 送る（mail コレクションへの書き込みを Trigger Email 拡張が送信する）。
+ * users/{uid}/private/profile 作成時に発火。公開プロフィール
+ * （users/{uid}）とあわせて登録内容を取得し、承認トークンを生成して
+ * 管理者へ承認依頼メールを送る（mail コレクションへの書き込みを
+ * Trigger Email 拡張が送信する）。
+ *
+ * AuthService.register はこの非公開ドキュメントと公開ドキュメントを
+ * 同一バッチで作成するため、このトリガー発火時点で公開ドキュメントは
+ * 既にコミット済みであることが保証される。
  */
 export const onUserCreated = functions
   .region(REGION)
-  .firestore.document(`${USERS_COLLECTION}/{uid}`)
+  .firestore.document(`${USERS_COLLECTION}/{uid}/${PRIVATE_PROFILE_DOC}`)
   .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
+    const uid = context.params.uid as string;
+    const privateData = snapshot.data();
+
+    const userSnap = await db.collection(USERS_COLLECTION).doc(uid).get();
+    const userData = userSnap.data();
+
     // 管理者が直接作成した等、既に承認済みなら何もしない
-    if (data?.approved === true) {
+    if (userData?.approved === true) {
       return;
     }
 
-    const uid = context.params.uid as string;
-    const username: string = data?.username ?? "(名前未設定)";
-    const email: string = data?.email ?? "(メール未設定)";
+    const username: string = userData?.username ?? "(名前未設定)";
+    const email: string = privateData?.email ?? "(メール未設定)";
 
     const token = randomBytes(32).toString("hex");
 
@@ -118,8 +132,12 @@ export const handleApproval = functions
       return;
     }
 
-    // 却下: 認証ユーザー・users ドキュメント・承認ドキュメントを削除
+    // 却下: 認証ユーザー・users ドキュメント（公開/非公開）・承認ドキュメントを削除
     await admin.auth().deleteUser(uid).catch(() => undefined);
+    await db
+      .doc(`${USERS_COLLECTION}/${uid}/${PRIVATE_PROFILE_DOC}`)
+      .delete()
+      .catch(() => undefined);
     await db.collection(USERS_COLLECTION).doc(uid).delete().catch(() => undefined);
     await approvalRef.delete();
     res.status(200).send(htmlPage("ユーザーの登録を却下しました。"));

@@ -1,26 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// users/{uid} の公開プロフィール。
+///
+/// メールアドレス等の個人情報は本人のみ読み書きできる
+/// `users/{uid}/private/profile` に分離して保持する（本ドキュメントは
+/// 投稿者名表示のためログイン済みユーザー全員に公開されるため）。
 class AppUser {
   const AppUser({
     required this.id,
     required this.username,
-    required this.email,
     this.bio = '',
     this.profileImageUrl,
     this.role = 'member',
     this.approved = false,
-    this.emailNotification = true,
     required this.createdAt,
   });
 
   final String id;
   final String username;
-  final String email;
   final String bio;
   final String? profileImageUrl;
   final String role;
   final bool approved;
-  final bool emailNotification;
   final DateTime createdAt;
 
   bool get isAdmin => role == 'admin';
@@ -29,12 +30,10 @@ class AppUser {
     return AppUser(
       id: id,
       username: document['username'] ?? '',
-      email: document['email'] ?? '',
       bio: document['bio'] ?? '',
       profileImageUrl: document['profileImageUrl'],
       role: document['role'] ?? 'member',
       approved: document['approved'] ?? false,
-      emailNotification: document['emailNotification'] ?? true,
       createdAt:
           (document['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -44,12 +43,10 @@ class AppUser {
     return {
       'id': id,
       'username': username,
-      'email': email,
       'bio': bio,
       'profileImageUrl': profileImageUrl,
       'role': role,
       'approved': approved,
-      'emailNotification': emailNotification,
       'createdAt': Timestamp.fromDate(createdAt),
     };
   }

@@ -52,6 +52,13 @@ service cloud.firestore {
         || isAdmin();
 
       allow delete: if isAdmin();
+
+      // メールアドレス等の個人情報。users/{userId} 本体は投稿者名表示のため
+      // 承認可否に関わらずログイン済みユーザー全員に公開されるので、
+      // ここに分離して本人のみ読み書きできるようにする
+      match /private/{document=**} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // 投稿
