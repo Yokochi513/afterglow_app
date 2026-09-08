@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
@@ -22,6 +23,10 @@ const double _contentPaddingVertical = 16 + 24;
 /// 未初期化の Firebase に触れないよう、常にモックを注入したダイアログを組み立てる。
 Widget _dialog({required double keyboardHeight, List<XFile>? initialImages}) {
   final firestore = FakeFirebaseFirestore();
+  final postService = PostService(
+    firestore: firestore,
+    storage: MockFirebaseStorage(),
+  );
 
   return MaterialApp(
     home: Builder(
@@ -33,9 +38,10 @@ Widget _dialog({required double keyboardHeight, List<XFile>? initialImages}) {
           ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboardHeight)),
           child: PostAddDialog(
             pos: const LatLng(35.0, 139.0),
-            postService: PostService(
+            postService: postService,
+            contestService: ContestService(
               firestore: firestore,
-              storage: MockFirebaseStorage(),
+              postService: postService,
             ),
             authService: AuthService(
               auth: MockFirebaseAuth(),
@@ -270,7 +276,7 @@ void main() {
       final list = tester.widget<ReorderableListView>(
         find.byType(ReorderableListView),
       );
-      list.onReorder(0, 3);
+      list.onReorder!(0, 3);
       await tester.pumpAndSettle();
 
       // サムネイルの並びが B, C, A になっていること
@@ -323,7 +329,7 @@ void main() {
       // 先頭の画像 A を末尾へ移動（A は表示中のまま）
       tester
           .widget<ReorderableListView>(find.byType(ReorderableListView))
-          .onReorder(0, 3);
+          .onReorder!(0, 3);
       await tester.pumpAndSettle();
 
       // 表示中の画像（末尾の A）を削除する

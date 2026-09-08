@@ -24,6 +24,8 @@ const FUNCTION_BASE_URL =
 const MAIL_COLLECTION = "mail";
 const USERS_COLLECTION = "users";
 const APPROVALS_COLLECTION = "registrationApprovals";
+const CONTESTS_COLLECTION = "contests";
+const POSTS_COLLECTION = "posts";
 
 // メールアドレス等の個人情報を格納する非公開サブコレクション（本人のみ
 // 読み書き可。firestore.rules 参照）のドキュメントパス
@@ -141,6 +143,95 @@ export const handleApproval = functions
     await db.collection(USERS_COLLECTION).doc(uid).delete().catch(() => undefined);
     await approvalRef.delete();
     res.status(200).send(htmlPage("ユーザーの登録を却下しました。"));
+  });
+
+/**
+ * 投票締切を過ぎたコンテスト投稿の匿名解除を行う。
+ * userId が空の投稿だけを対象にするため、再実行しても同じ投稿を重複更新しない。
+ */
+export const revealContestAuthors = functions
+  .region(REGION)
+  .pubsub.schedule("every 30 minutes")
+  .timeZone("Asia/Tokyo")
+  .onRun(async () => {
+    const now = admin.firestore.Timestamp.now();
+    const contests = await db
+      .collection(CONTESTS_COLLECTION)
+      .where("votingDeadline", "<=", now)
+      .get();
+
+    for (const contest of contests.docs) {
+      const posts = await db
+        .collection(POSTS_COLLECTION)
+        .where("contestId", "==", contest.id)
+        .where("userId", "==", "")
+        .where("stayAnonymous", "==", false)
+        .get();
+
+      let batch = db.batch();
+      let writes = 0;
+
+      for (const post of posts.docs) {
+        const author = await post.ref.collection("private").doc("author").get();
+        const authorId = author.data()?.userId;
+        if (typeof authorId !== "string" || authorId.length === 0) {
+          continue;
+        }
+
+        batch.update(post.ref, {userId: authorId});
+        writes++;
+
+        if (writes === 450) {
+          await batch.commit();
+          batch = db.batch();
+          writes = 0;
+        }
+      }
+
+      if (writes > 0) {
+        await batch.commit();
+      }
+    }
+  });
+
+/**
+ * コンテスト投票（contests/{contestId}/votes/{voterId}）の増減に合わせて
+ * 対象投稿の voteCount を更新する。
+ *
+ * voteCount はコンテスト参加者全員に見える集計値で、投票ドキュメントの
+ * 実体（誰がどの投稿に投票したか）は本人と管理者しか読めない（firestore.rules
+ * 参照）。クライアントに voteCount の直接更新を許すと得票数を不正に
+ * 書き換えられてしまうため、Admin SDK 経由のこのトリガーだけが更新する
+ * （firestore.rules 側は posts/{postId}.voteCount へのクライアント書き込みを
+ * 一切許可しない）。
+ */
+export const onContestVoteChange = functions
+  .region(REGION)
+  .firestore.document(`${CONTESTS_COLLECTION}/{contestId}/votes/{voterId}`)
+  .onWrite(async (change) => {
+    const before = change.before.exists
+      ? (change.before.data()?.postId as string | undefined)
+      : undefined;
+    const after = change.after.exists
+      ? (change.after.data()?.postId as string | undefined)
+      : undefined;
+
+    if (before === after) {
+      return;
+    }
+
+    await db.runTransaction(async (transaction) => {
+      if (before) {
+        transaction.update(db.collection(POSTS_COLLECTION).doc(before), {
+          voteCount: admin.firestore.FieldValue.increment(-1),
+        });
+      }
+      if (after) {
+        transaction.update(db.collection(POSTS_COLLECTION).doc(after), {
+          voteCount: admin.firestore.FieldValue.increment(1),
+        });
+      }
+    });
   });
 
 function escapeHtml(value: string): string {

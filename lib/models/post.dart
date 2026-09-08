@@ -13,6 +13,9 @@ class Post {
     this.tags = const [],
     this.likeCount = 0,
     this.commentCount = 0,
+    this.contestId,
+    this.stayAnonymous = false,
+    this.voteCount = 0,
     this.updatedAt,
   });
 
@@ -37,13 +40,22 @@ class Post {
   /// comments サブコレクションを数えずに済むよう保持する。欠損時は 0。
   final int commentCount;
 
+  /// コンテスト参加投稿の場合のみ設定される。通常投稿は null。
+  final String? contestId;
+
+  /// コンテスト終了後も投稿者を匿名のままにするか。
+  final bool stayAnonymous;
+
+  /// コンテスト投票数。通常投稿では 0 のまま扱う。
+  final int voteCount;
+
   /// 更新日時（PS_08）。未編集なら null。
   final DateTime? updatedAt;
 
   factory Post.fromSnapshot(String id, Map<String, dynamic> document) {
     return Post(
       id: id,
-      userId: document['userId'],
+      userId: document['userId'] ?? '',
       caption: document['caption'] ?? '',
       imageUrls: List<String>.from(document['imageUrls'] ?? []),
       latitude: document['latitude']?.toDouble() ?? 0.0,
@@ -54,6 +66,9 @@ class Post {
       tags: List<String>.from(document['tags'] ?? []),
       likeCount: document['likeCount'] ?? 0,
       commentCount: document['commentCount'] ?? 0,
+      contestId: document['contestId'],
+      stayAnonymous: document['stayAnonymous'] ?? false,
+      voteCount: document['voteCount'] ?? 0,
       updatedAt: (document['updatedAt'] as Timestamp?)?.toDate(),
     );
   }
