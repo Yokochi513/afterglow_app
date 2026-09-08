@@ -1,4 +1,5 @@
 import 'package:afterglow_app/pages/album_list_page.dart';
+import 'package:afterglow_app/pages/contest_list_page.dart';
 import 'package:afterglow_app/pages/event_page.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
 import 'package:afterglow_app/pages/map_screen.dart';
@@ -7,11 +8,12 @@ import 'package:flutter/material.dart';
 
 /// 承認済みユーザーのアプリ本体。
 ///
-/// `BottomNavigationBar` で 4 つのタブを切り替える（設計書 §4.2）。
+/// `BottomNavigationBar` で 5 つのタブを切り替える（設計書 §4.2）。
 /// - 0: Feed（FR_02）… [FeedPage]
 /// - 1: Map（FR_03）… 既存 [MapScreen]
 /// - 2: Album（PS_02）… [AlbumListPage]（承認済みユーザー全員のアルバム）
 /// - 3: Event（FR_05）… [EventPage]（承認済みユーザー全員のイベント）
+/// - 4: Contest（Issue #69）… [ContestListPage]（承認済みユーザー全員のコンテスト）
 ///
 /// 投稿（FR_07）はタブを持たず、マップ画面の地図タップから開く [ProfilePage] は
 /// 既存の Profile 導線（本ウィジェット外）から表示する。
@@ -37,6 +39,7 @@ class _MainShellState extends State<MainShell> {
     MapScreen(), // 1: Map
     AlbumListPage(), // 2: Album（PS_02）
     EventPage(), // 3: Event（FR_05）
+    ContestListPage(), // 4: Contest（Issue #69）
   ];
 
   void _onTabTapped(int index) {
@@ -67,6 +70,10 @@ class _MainShellState extends State<MainShell> {
           BottomNavigationBarItem(
             icon: Icon(Icons.event_outlined),
             label: 'Event',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.emoji_events_outlined),
+            label: 'Contest',
           ),
         ],
       ),

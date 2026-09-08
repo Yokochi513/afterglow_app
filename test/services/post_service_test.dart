@@ -89,6 +89,50 @@ void main() {
       expect(imageUrls.first, isNotEmpty);
     });
 
+    test(
+      'createPost stores contest post author in private subdocument',
+      () async {
+        final post = Post(
+          id: 'contest-post',
+          userId: 'author',
+          caption: 'contest entry',
+          imageUrls: const [],
+          latitude: 35.0,
+          longitude: 139.0,
+          createdAt: DateTime(2026, 9, 8, 12),
+        );
+
+        final success = await service.createPost(
+          post,
+          const [],
+          contestId: 'contest-1',
+          stayAnonymous: true,
+        );
+
+        expect(success, isTrue);
+
+        final body = await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .get();
+        final bodyData = body.data();
+        expect(bodyData, isNotNull);
+        expect(bodyData!['userId'], '');
+        expect(bodyData['contestId'], 'contest-1');
+        expect(bodyData['stayAnonymous'], isTrue);
+        expect(bodyData['voteCount'], 0);
+
+        final author = await firestore
+            .collection(PostService.postsCollection)
+            .doc(post.id)
+            .collection(PostService.privateCollection)
+            .doc(PostService.authorDocument)
+            .get();
+        expect(author.data()?['userId'], 'author');
+        expect(await service.getAuthorId(post.id), 'author');
+      },
+    );
+
     test('createPost uploads multiple images with distinct URLs', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'post_service_test_multi',

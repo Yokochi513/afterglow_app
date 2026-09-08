@@ -12,6 +12,11 @@ class AuthService {
 
   static const String usersCollection = 'users';
 
+  /// メールアドレス等の個人情報を格納する非公開サブコレクション。
+  /// `users/{uid}` 本体は投稿者名表示のため全ログインユーザーに公開されるので、
+  /// ここには分離して本人のみ読み書きできるようにする（firestore.rules 参照）。
+  static const String privateProfileDoc = 'private/profile';
+
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   User? get currentUser => _auth.currentUser;
@@ -23,8 +28,9 @@ class AuthService {
   }
 
   /// 新規登録。Auth ユーザー作成後、Firestore に未承認(`approved: false`)の
-  /// users ドキュメントを作成する。このドキュメント作成を Cloud Functions が
-  /// 検知し、管理者へ承認依頼メールを送信する。
+  /// 公開プロフィール（users/{uid}）とメールアドレス等を含む非公開プロフィール
+  /// （users/{uid}/private/profile）をバッチで作成する。この作成を Cloud
+  /// Functions が検知し、管理者へ承認依頼メールを送信する。
   Future<UserCredential> register(
     String email,
     String password,
@@ -39,11 +45,16 @@ class AuthService {
     final user = AppUser(
       id: uid,
       username: username,
-      email: email,
       createdAt: DateTime.now(),
     );
 
-    await _firestore.collection(usersCollection).doc(uid).set(user.toMap());
+    final batch = _firestore.batch();
+    batch.set(_firestore.collection(usersCollection).doc(uid), user.toMap());
+    batch.set(_firestore.doc('$usersCollection/$uid/$privateProfileDoc'), {
+      'email': email,
+      'emailNotification': true,
+    });
+    await batch.commit();
 
     return credential;
   }

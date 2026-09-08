@@ -1,9 +1,11 @@
 import 'package:afterglow_app/models/app_user.dart';
+import 'package:afterglow_app/models/contest.dart';
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/pages/image_viewer_page.dart';
 import 'package:afterglow_app/pages/location_picker_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -50,6 +52,7 @@ class PostDetailView extends StatefulWidget {
     this.mode = PostViewMode.full,
     this.authService,
     this.postService,
+    this.contestService,
     this.userService,
     this.reactionBar,
     this.commentSection,
@@ -63,6 +66,7 @@ class PostDetailView extends StatefulWidget {
   /// テスト時に差し替え可能。null の場合はビルド時に既定インスタンスを生成する。
   final AuthService? authService;
   final PostService? postService;
+  final ContestService? contestService;
   final UserService? userService;
 
   /// リアクションバー（#13）の差し込み口。未指定なら表示しない。
@@ -97,18 +101,17 @@ class _PostDetailViewState extends State<PostDetailView> {
   late final AuthService _authService = widget.authService ?? AuthService();
   late final PostService _postService = widget.postService ?? PostService();
   late final UserService _userService = widget.userService ?? UserService();
+  late final ContestService _contestService =
+      widget.contestService ?? ContestService(postService: _postService);
 
   bool _isDeleting = false;
   bool _isEditing = false;
   bool _isSaving = false;
-
-  bool get _isOwner =>
-      _authService.currentUserId != null &&
-      _authService.currentUserId == widget.post.userId;
+  bool _canManagePost = false;
 
   /// 編集/削除メニューを出すか。自投稿でも [PostViewMode.summary] では出さず、
   /// 編集導線は詳細ページ側に一本化する。
-  bool get _canEdit => _isOwner && widget.mode == PostViewMode.full;
+  bool get _canEdit => _canManagePost && widget.mode == PostViewMode.full;
 
   /// 表示・編集中の画像一覧。編集で削除すると要素が減る。
   late List<String> _imageUrls = List<String>.of(widget.post.imageUrls);
@@ -135,6 +138,45 @@ class _PostDetailViewState extends State<PostDetailView> {
   );
 
   int _currentImageIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadManagePermission();
+  }
+
+  Future<void> _loadManagePermission() async {
+    final uid = _authService.currentUserId;
+    if (uid == null) {
+      return;
+    }
+
+    // 通常投稿は本体の userId で同期的に判定できる（Firestore アクセス不要）。
+    // 匿名期間中のコンテスト投稿だけ、実投稿者を private/author から解決する
+    // 必要があるため非同期になる（ADR 0002 §3）。
+    if (widget.post.contestId == null) {
+      setState(() => _canManagePost = widget.post.userId == uid);
+      return;
+    }
+
+    final authorId = await _postService.getAuthorId(widget.post.id);
+    final currentUser = await _userService.getUser(uid);
+    final contest = await _contestService.getContest(widget.post.contestId!);
+
+    if (!mounted) {
+      return;
+    }
+
+    // コンテスト投稿の編集・削除は本人 or 管理者、かつエントリー期間中のみ
+    // （ADR 0002 §8）。管理者はフェーズに関わらず削除できる規定だが、この
+    // ウィジェットは編集・削除ボタンをまとめて出すため、実務上の影響が
+    // ない範囲で同じ条件にまとめている。
+    final isEntryOpen = contest?.phase == ContestPhase.entry;
+    setState(() {
+      _canManagePost =
+          (authorId == uid || currentUser?.isAdmin == true) && isEntryOpen;
+    });
+  }
 
   void _showPreviousImage() {
     if (_currentImageIndex > 0) {
@@ -312,6 +354,9 @@ class _PostDetailViewState extends State<PostDetailView> {
   }
 
   void _openAuthorProfile() {
+    if (widget.post.userId.isEmpty) {
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ProfilePage(userId: widget.post.userId),
@@ -359,6 +404,33 @@ class _PostDetailViewState extends State<PostDetailView> {
 
   /// 投稿者情報（プロフィール画像・ユーザー名）。タップで ProfilePage へ遷移する。
   Widget _buildAuthorHeader() {
+    if (widget.post.userId.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.grey.shade200,
+              child: const Icon(
+                Icons.person_outline,
+                size: 20,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '匿名',
+                style: Theme.of(context).textTheme.titleSmall,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return StreamBuilder<AppUser?>(
       stream: _userService.watchUser(widget.post.userId),
       builder: (context, snapshot) {
@@ -687,7 +759,20 @@ class _PostDetailViewState extends State<PostDetailView> {
   Widget _buildAuthorRow() {
     return Row(
       children: [
-        Expanded(child: _buildAuthorHeader()),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAuthorHeader(),
+              if (widget.post.contestId != null)
+                Chip(
+                  avatar: const Icon(Icons.emoji_events_outlined, size: 16),
+                  label: Text('コンテスト参加中・${widget.post.voteCount}票'),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+        ),
         if (_canEdit) ..._buildOwnerActions(),
       ],
     );

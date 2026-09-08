@@ -43,6 +43,9 @@ describe('users と承認状態のルール', () => {
         approved: true,
         role: 'admin',
       });
+      await setDoc(doc(db, 'users/member/private/profile'), {
+        email: 'member@example.com',
+      });
       await setDoc(doc(db, 'posts/post-1'), {
         userId: 'member',
         caption: 'テスト投稿',
@@ -148,6 +151,33 @@ describe('users と承認状態のルール', () => {
     it('一般ユーザーは自分のドキュメントも削除できない（削除は管理者のみ）', async () => {
       await assertFails(deleteDoc(doc(approved(testEnv, 'member'), 'users/member')));
       await assertSucceeds(deleteDoc(doc(approved(testEnv, 'admin'), 'users/member')));
+    });
+  });
+
+  describe('メールアドレス等の非公開プロフィール（users/{uid}/private/profile）', () => {
+    it('本人は読み書きできる', async () => {
+      const db = approved(testEnv, 'member');
+      await assertSucceeds(getDoc(doc(db, 'users/member/private/profile')));
+      await assertSucceeds(
+        setDoc(doc(db, 'users/member/private/profile'), {
+          email: 'member@example.com',
+          emailNotification: false,
+        }),
+      );
+    });
+
+    it('他人は読み書きできない（管理者でも不可）', async () => {
+      await assertFails(getDoc(doc(approved(testEnv, 'pending'), 'users/member/private/profile')));
+      await assertFails(getDoc(doc(approved(testEnv, 'admin'), 'users/member/private/profile')));
+      await assertFails(
+        setDoc(doc(approved(testEnv, 'admin'), 'users/member/private/profile'), {
+          email: '改ざん@example.com',
+        }),
+      );
+    });
+
+    it('未ログインでは読めない', async () => {
+      await assertFails(getDoc(doc(signedOut(testEnv), 'users/member/private/profile')));
     });
   });
 

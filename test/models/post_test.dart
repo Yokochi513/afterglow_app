@@ -40,7 +40,25 @@ void main() {
       expect(post.tags, <String>['桜', '夜景']);
       expect(post.likeCount, 5);
       expect(post.commentCount, 3);
+      expect(post.contestId, isNull);
+      expect(post.stayAnonymous, isFalse);
+      expect(post.voteCount, 0);
       expect(post.updatedAt, updatedAt);
+    });
+
+    test('maps contest fields when present', () {
+      final post = Post.fromSnapshot('post-1', <String, dynamic>{
+        'userId': '',
+        'createdAt': Timestamp.fromDate(DateTime(2026, 1, 1)),
+        'contestId': 'contest-1',
+        'stayAnonymous': true,
+        'voteCount': 7,
+      });
+
+      expect(post.userId, '');
+      expect(post.contestId, 'contest-1');
+      expect(post.stayAnonymous, isTrue);
+      expect(post.voteCount, 7);
     });
 
     test('defaults the extended fields when missing (backward compatible)', () {
@@ -53,7 +71,18 @@ void main() {
       expect(post.tags, isEmpty);
       expect(post.likeCount, 0);
       expect(post.commentCount, 0);
+      expect(post.contestId, isNull);
+      expect(post.stayAnonymous, isFalse);
+      expect(post.voteCount, 0);
       expect(post.updatedAt, isNull);
+    });
+
+    test('defaults userId to an empty string when missing', () {
+      final post = Post.fromSnapshot('post-1', <String, dynamic>{
+        'createdAt': Timestamp.fromDate(DateTime(2026, 1, 1)),
+      });
+
+      expect(post.userId, '');
     });
 
     test('copies tags into a new modifiable list', () {

@@ -34,6 +34,45 @@ service cloud.firestore {
         && userDoc(request.auth.uid).role == 'admin';
     }
 
+    function contestPath(contestId) {
+      return /databases/$(database)/documents/contests/$(contestId);
+    }
+
+    function postPath(postId) {
+      return /databases/$(database)/documents/posts/$(postId);
+    }
+
+    function postAuthorPath(postId) {
+      return /databases/$(database)/documents/posts/$(postId)/private/author;
+    }
+
+    function isContestEntryOpen(contestId) {
+      return exists(contestPath(contestId))
+        && request.time < get(contestPath(contestId)).data.entryDeadline;
+    }
+
+    function isContestVotingOpen(contestId) {
+      return exists(contestPath(contestId))
+        && get(contestPath(contestId)).data.entryDeadline <= request.time
+        && request.time < get(contestPath(contestId)).data.votingDeadline;
+    }
+
+    function isContestPost(postData) {
+      return postData.get('contestId', null) is string;
+    }
+
+    function isPostAuthor(postId, uid) {
+      return exists(postPath(postId))
+        && (
+          get(postPath(postId)).data.get('userId', '') == uid
+          || (
+            get(postPath(postId)).data.get('userId', '') == ''
+            && exists(postAuthorPath(postId))
+            && get(postAuthorPath(postId)).data.userId == uid
+          )
+        );
+    }
+
     // ユーザー
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -52,6 +91,13 @@ service cloud.firestore {
         || isAdmin();
 
       allow delete: if isAdmin();
+
+      // メールアドレス等の個人情報。users/{userId} 本体は投稿者名表示のため
+      // 承認可否に関わらずログイン済みユーザー全員に公開されるので、
+      // ここに分離して本人のみ読み書きできるようにする
+      match /private/{document=**} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // 投稿
@@ -72,15 +118,50 @@ service cloud.firestore {
                 == resource.data.get('likeCount', 0) - 1);
       }
 
+      function isContestAuthorEditing() {
+        return isContestPost(resource.data)
+          && exists(postAuthorPath(postId))
+          && get(postAuthorPath(postId)).data.userId == request.auth.uid
+          && isContestEntryOpen(resource.data.contestId);
+      }
+
       allow read: if isApproved();
       allow create: if isApproved()
-        && request.resource.data.userId == request.auth.uid;
+        && (
+          (
+            request.resource.data.userId == request.auth.uid
+            && request.resource.data.get('contestId', null) == null
+          )
+          || (
+            request.resource.data.get('contestId', null) is string
+            && request.resource.data.userId == ''
+            && request.resource.data.voteCount == 0
+            && isContestEntryOpen(request.resource.data.contestId)
+          )
+        );
+      // voteCount はクライアントから直接書き換えられない。投票の実体は
+      // contests/{contestId}/votes/{userId} のみで、その増減の反映は
+      // Cloud Functions（Admin SDK）の onContestVoteChange が行う（下記参照）。
+      // 実数を承認済みユーザー全員に見せる集計値のため、likeCount と違い
+      // クライアントの直接更新を許すと得票数を不正に書き換えられてしまう。
       allow update: if isApproved()
         && (resource.data.userId == request.auth.uid
           || isAdmin()
-          || isLikeCountOnlyUpdate());
+          || isLikeCountOnlyUpdate()
+          || isContestAuthorEditing());
       allow delete: if isApproved()
-        && (resource.data.userId == request.auth.uid || isAdmin());
+        && (resource.data.userId == request.auth.uid
+          || isAdmin()
+          || isContestAuthorEditing());
+
+      // コンテスト投稿の実投稿者 UID。匿名期間中も本人と管理者だけが読める。
+      match /private/{document=**} {
+        allow read: if isAdmin()
+          || (isSignedIn() && resource.data.userId == request.auth.uid);
+        allow create: if isApproved()
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
 
       // コメント
       match /comments/{commentId} {
@@ -95,6 +176,30 @@ service cloud.firestore {
       match /reactions/{reactionUserId} {
         allow read: if isApproved();
         allow write: if isApproved() && request.auth.uid == reactionUserId;
+      }
+    }
+
+    // コンテスト。投票内容は本人と管理者だけが読める。
+    match /contests/{contestId} {
+      allow read: if isApproved();
+      allow create: if isApproved()
+        && request.resource.data.creatorId == request.auth.uid;
+      allow update, delete: if isApproved()
+        && (resource.data.creatorId == request.auth.uid || isAdmin());
+
+      match /votes/{userId} {
+        allow read: if isAdmin()
+          || (isSignedIn() && request.auth.uid == userId);
+        allow create, update: if isApproved()
+          && request.auth.uid == userId
+          && request.resource.data.postId is string
+          && exists(postPath(request.resource.data.postId))
+          && get(postPath(request.resource.data.postId)).data.contestId == contestId
+          && isContestVotingOpen(contestId)
+          && !isPostAuthor(request.resource.data.postId, request.auth.uid);
+        allow delete: if isApproved()
+          && request.auth.uid == userId
+          && isContestVotingOpen(contestId);
       }
     }
 

@@ -7,6 +7,7 @@ import {
   increment,
   runTransaction,
   setDoc,
+  Timestamp,
   updateDoc,
 } from 'firebase/firestore';
 import { approved, createTestEnv, seed } from './helpers.mjs';
@@ -162,6 +163,166 @@ describe('posts のルール', () => {
       const db = approved(testEnv, 'liker');
       await assertFails(
         setDoc(doc(db, 'posts/new-post'), { userId: 'author', caption: 'なりすまし' }),
+      );
+    });
+  });
+
+  describe('コンテスト投稿と投票', () => {
+    const contestWindow = () => {
+      const now = Date.now();
+      return {
+        entryDeadline: Timestamp.fromDate(new Date(now + 60 * 60 * 1000)),
+        votingDeadline: Timestamp.fromDate(new Date(now + 2 * 60 * 60 * 1000)),
+      };
+    };
+
+    it('エントリー期間中は userId が空のコンテスト投稿を作成できる', async () => {
+      const db = approved(testEnv, 'author');
+      const { entryDeadline, votingDeadline } = contestWindow();
+      await seed(testEnv, (adminDb) =>
+        setDoc(doc(adminDb, 'contests/contest-1'), {
+          creatorId: 'author',
+          title: 'contest',
+          entryDeadline,
+          votingDeadline,
+        }),
+      );
+
+      await assertSucceeds(
+        setDoc(doc(db, 'posts/contest-post'), {
+          userId: '',
+          contestId: 'contest-1',
+          stayAnonymous: false,
+          voteCount: 0,
+          caption: 'entry',
+        }),
+      );
+      await assertSucceeds(
+        setDoc(doc(db, 'posts/contest-post/private/author'), {
+          userId: 'author',
+        }),
+      );
+    });
+
+    it('エントリー締切後はコンテスト投稿を作成できない', async () => {
+      const db = approved(testEnv, 'author');
+      const now = Date.now();
+      await seed(testEnv, (adminDb) =>
+        setDoc(doc(adminDb, 'contests/contest-1'), {
+          creatorId: 'author',
+          title: 'contest',
+          entryDeadline: Timestamp.fromDate(new Date(now - 60 * 1000)),
+          votingDeadline: Timestamp.fromDate(new Date(now + 60 * 60 * 1000)),
+        }),
+      );
+
+      await assertFails(
+        setDoc(doc(db, 'posts/late-contest-post'), {
+          userId: '',
+          contestId: 'contest-1',
+          stayAnonymous: false,
+          voteCount: 0,
+          caption: 'late',
+        }),
+      );
+    });
+
+    it('匿名投稿の実投稿者は本人と管理者だけが読める', async () => {
+      const authorDb = approved(testEnv, 'author');
+      const likerDb = approved(testEnv, 'liker');
+      const adminDb = approved(testEnv, 'admin');
+      await seed(testEnv, (adminDb) =>
+        setDoc(doc(adminDb, 'posts/contest-post/private/author'), {
+          userId: 'author',
+        }),
+      );
+
+      await assertSucceeds(getDoc(doc(authorDb, 'posts/contest-post/private/author')));
+      await assertSucceeds(getDoc(doc(adminDb, 'posts/contest-post/private/author')));
+      await assertFails(getDoc(doc(likerDb, 'posts/contest-post/private/author')));
+    });
+
+    it('投票期間中は他人のコンテスト投稿へ投票できる', async () => {
+      const db = approved(testEnv, 'liker');
+      const now = Date.now();
+      await seed(testEnv, async (adminDb) => {
+        await setDoc(doc(adminDb, 'contests/contest-1'), {
+          creatorId: 'author',
+          title: 'contest',
+          entryDeadline: Timestamp.fromDate(new Date(now - 60 * 1000)),
+          votingDeadline: Timestamp.fromDate(new Date(now + 60 * 60 * 1000)),
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post'), {
+          userId: '',
+          contestId: 'contest-1',
+          voteCount: 0,
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post/private/author'), {
+          userId: 'author',
+        });
+      });
+
+      // voteCount 自体はクライアントから直接更新できない。投票の実体は
+      // votes ドキュメントのみで、voteCount への反映は Cloud Functions
+      // （onContestVoteChange）が Admin SDK 経由で行う。
+      await assertSucceeds(
+        setDoc(doc(db, 'contests/contest-1/votes/liker'), {
+          postId: 'contest-post',
+          updatedAt: Timestamp.fromDate(new Date()),
+        }),
+      );
+    });
+
+    it('投稿の voteCount をクライアントから直接書き換えられない', async () => {
+      const db = approved(testEnv, 'liker');
+      const now = Date.now();
+      await seed(testEnv, async (adminDb) => {
+        await setDoc(doc(adminDb, 'contests/contest-1'), {
+          creatorId: 'author',
+          title: 'contest',
+          entryDeadline: Timestamp.fromDate(new Date(now - 60 * 1000)),
+          votingDeadline: Timestamp.fromDate(new Date(now + 60 * 60 * 1000)),
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post'), {
+          userId: '',
+          contestId: 'contest-1',
+          voteCount: 0,
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post/private/author'), {
+          userId: 'author',
+        });
+      });
+
+      await assertFails(
+        updateDoc(doc(db, 'posts/contest-post'), { voteCount: increment(1) }),
+      );
+    });
+
+    it('自分のコンテスト投稿には投票できない', async () => {
+      const db = approved(testEnv, 'author');
+      const now = Date.now();
+      await seed(testEnv, async (adminDb) => {
+        await setDoc(doc(adminDb, 'contests/contest-1'), {
+          creatorId: 'author',
+          title: 'contest',
+          entryDeadline: Timestamp.fromDate(new Date(now - 60 * 1000)),
+          votingDeadline: Timestamp.fromDate(new Date(now + 60 * 60 * 1000)),
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post'), {
+          userId: '',
+          contestId: 'contest-1',
+          voteCount: 0,
+        });
+        await setDoc(doc(adminDb, 'posts/contest-post/private/author'), {
+          userId: 'author',
+        });
+      });
+
+      await assertFails(
+        setDoc(doc(db, 'contests/contest-1/votes/author'), {
+          postId: 'contest-post',
+          updatedAt: Timestamp.fromDate(new Date()),
+        }),
       );
     });
   });

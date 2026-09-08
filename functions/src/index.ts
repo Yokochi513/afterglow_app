@@ -24,24 +24,40 @@ const FUNCTION_BASE_URL =
 const MAIL_COLLECTION = "mail";
 const USERS_COLLECTION = "users";
 const APPROVALS_COLLECTION = "registrationApprovals";
+const CONTESTS_COLLECTION = "contests";
+const POSTS_COLLECTION = "posts";
+
+// メールアドレス等の個人情報を格納する非公開サブコレクション（本人のみ
+// 読み書き可。firestore.rules 参照）のドキュメントパス
+const PRIVATE_PROFILE_DOC = "private/profile";
 
 /**
- * users/{uid} 作成時に発火。承認トークンを生成し、管理者へ承認依頼メールを
- * 送る（mail コレクションへの書き込みを Trigger Email 拡張が送信する）。
+ * users/{uid}/private/profile 作成時に発火。公開プロフィール
+ * （users/{uid}）とあわせて登録内容を取得し、承認トークンを生成して
+ * 管理者へ承認依頼メールを送る（mail コレクションへの書き込みを
+ * Trigger Email 拡張が送信する）。
+ *
+ * AuthService.register はこの非公開ドキュメントと公開ドキュメントを
+ * 同一バッチで作成するため、このトリガー発火時点で公開ドキュメントは
+ * 既にコミット済みであることが保証される。
  */
 export const onUserCreated = functions
   .region(REGION)
-  .firestore.document(`${USERS_COLLECTION}/{uid}`)
+  .firestore.document(`${USERS_COLLECTION}/{uid}/${PRIVATE_PROFILE_DOC}`)
   .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
+    const uid = context.params.uid as string;
+    const privateData = snapshot.data();
+
+    const userSnap = await db.collection(USERS_COLLECTION).doc(uid).get();
+    const userData = userSnap.data();
+
     // 管理者が直接作成した等、既に承認済みなら何もしない
-    if (data?.approved === true) {
+    if (userData?.approved === true) {
       return;
     }
 
-    const uid = context.params.uid as string;
-    const username: string = data?.username ?? "(名前未設定)";
-    const email: string = data?.email ?? "(メール未設定)";
+    const username: string = userData?.username ?? "(名前未設定)";
+    const email: string = privateData?.email ?? "(メール未設定)";
 
     const token = randomBytes(32).toString("hex");
 
@@ -118,11 +134,104 @@ export const handleApproval = functions
       return;
     }
 
-    // 却下: 認証ユーザー・users ドキュメント・承認ドキュメントを削除
+    // 却下: 認証ユーザー・users ドキュメント（公開/非公開）・承認ドキュメントを削除
     await admin.auth().deleteUser(uid).catch(() => undefined);
+    await db
+      .doc(`${USERS_COLLECTION}/${uid}/${PRIVATE_PROFILE_DOC}`)
+      .delete()
+      .catch(() => undefined);
     await db.collection(USERS_COLLECTION).doc(uid).delete().catch(() => undefined);
     await approvalRef.delete();
     res.status(200).send(htmlPage("ユーザーの登録を却下しました。"));
+  });
+
+/**
+ * 投票締切を過ぎたコンテスト投稿の匿名解除を行う。
+ * userId が空の投稿だけを対象にするため、再実行しても同じ投稿を重複更新しない。
+ */
+export const revealContestAuthors = functions
+  .region(REGION)
+  .pubsub.schedule("every 30 minutes")
+  .timeZone("Asia/Tokyo")
+  .onRun(async () => {
+    const now = admin.firestore.Timestamp.now();
+    const contests = await db
+      .collection(CONTESTS_COLLECTION)
+      .where("votingDeadline", "<=", now)
+      .get();
+
+    for (const contest of contests.docs) {
+      const posts = await db
+        .collection(POSTS_COLLECTION)
+        .where("contestId", "==", contest.id)
+        .where("userId", "==", "")
+        .where("stayAnonymous", "==", false)
+        .get();
+
+      let batch = db.batch();
+      let writes = 0;
+
+      for (const post of posts.docs) {
+        const author = await post.ref.collection("private").doc("author").get();
+        const authorId = author.data()?.userId;
+        if (typeof authorId !== "string" || authorId.length === 0) {
+          continue;
+        }
+
+        batch.update(post.ref, {userId: authorId});
+        writes++;
+
+        if (writes === 450) {
+          await batch.commit();
+          batch = db.batch();
+          writes = 0;
+        }
+      }
+
+      if (writes > 0) {
+        await batch.commit();
+      }
+    }
+  });
+
+/**
+ * コンテスト投票（contests/{contestId}/votes/{voterId}）の増減に合わせて
+ * 対象投稿の voteCount を更新する。
+ *
+ * voteCount はコンテスト参加者全員に見える集計値で、投票ドキュメントの
+ * 実体（誰がどの投稿に投票したか）は本人と管理者しか読めない（firestore.rules
+ * 参照）。クライアントに voteCount の直接更新を許すと得票数を不正に
+ * 書き換えられてしまうため、Admin SDK 経由のこのトリガーだけが更新する
+ * （firestore.rules 側は posts/{postId}.voteCount へのクライアント書き込みを
+ * 一切許可しない）。
+ */
+export const onContestVoteChange = functions
+  .region(REGION)
+  .firestore.document(`${CONTESTS_COLLECTION}/{contestId}/votes/{voterId}`)
+  .onWrite(async (change) => {
+    const before = change.before.exists
+      ? (change.before.data()?.postId as string | undefined)
+      : undefined;
+    const after = change.after.exists
+      ? (change.after.data()?.postId as string | undefined)
+      : undefined;
+
+    if (before === after) {
+      return;
+    }
+
+    await db.runTransaction(async (transaction) => {
+      if (before) {
+        transaction.update(db.collection(POSTS_COLLECTION).doc(before), {
+          voteCount: admin.firestore.FieldValue.increment(-1),
+        });
+      }
+      if (after) {
+        transaction.update(db.collection(POSTS_COLLECTION).doc(after), {
+          voteCount: admin.firestore.FieldValue.increment(1),
+        });
+      }
+    });
   });
 
 function escapeHtml(value: string): string {

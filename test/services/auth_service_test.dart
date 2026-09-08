@@ -35,9 +35,17 @@ void main() {
       expect(snapshot.exists, isTrue);
       final data = snapshot.data()!;
       expect(data['username'], 'Newcomer');
-      expect(data['email'], 'newcomer@example.com');
+      expect(data.containsKey('email'), isFalse);
       expect(data['approved'], isFalse);
       expect(data['role'], 'member');
+
+      final privateSnapshot = await firestore
+          .doc(
+            '${AuthService.usersCollection}/$uid/${AuthService.privateProfileDoc}',
+          )
+          .get();
+      expect(privateSnapshot.exists, isTrue);
+      expect(privateSnapshot.data()!['email'], 'newcomer@example.com');
     });
 
     test('signOut clears the current user', () async {

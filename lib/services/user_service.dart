@@ -27,6 +27,18 @@ class UserService {
     });
   }
 
+  Future<AppUser?> getUser(String uid) async {
+    final snapshot = await _firestore
+        .collection(usersCollection)
+        .doc(uid)
+        .get();
+    final data = snapshot.data();
+    if (data == null) {
+      return null;
+    }
+    return AppUser.fromSnapshot(snapshot.id, data);
+  }
+
   /// プロフィール情報（ユーザー名・自己紹介・プロフィール画像）を更新する。
   /// `profileImageUrl` を省略した場合は画像 URL を変更しない。
   Future<void> updateProfile(
