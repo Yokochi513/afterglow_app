@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+## [1.4.0+5] - 2026-09-08
+
+### Added
+
+- 匿名で参加できるコンテスト機能を追加しました。写真を投稿して参加し、他の参加作品に投票できます。
+
+### Fixed
+
+- 写真を複数枚まとめて選択したときに、アプリが落ちることがあった問題を修正しました。
+- Web版で、起動直後に一部の文字が正しく表示されないことがあった問題を修正しました。
+
+### Security
+
+- セキュリティを強化しました。
+
 ## [1.3.1+4] - 2026-08-24
 
 ### Changed
@@ -91,7 +106,8 @@
 
 - Firestore / Storage のセキュリティルールで承認済みユーザーのみを許可。
 
-[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.4.0...HEAD
+[1.4.0+5]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.1...v1.4.0
 [1.3.1+4]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.0...v1.3.1
 [1.3.0+3]: https://github.com/Yokochi513/afterglow_app/compare/v1.2.0...v1.3.0
 [1.2.0+2]: https://github.com/Yokochi513/afterglow_app/compare/v1.0...v1.2.0
