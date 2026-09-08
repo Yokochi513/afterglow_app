@@ -109,3 +109,13 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+  # 日本語テキスト表示用フォント（Noto Sans JP をサブセット化して同梱）。
+  # CanvasKit が実行時に日本語フォントを動的取得する際に生じる
+  # 一時的な文字欠け（U+0000 のプレースホルダー表示）を防ぐため。
+  fonts:
+    - family: NotoSansJP
+      fonts:
+        - asset: assets/fonts/NotoSansJP-Regular.ttf
+        - asset: assets/fonts/NotoSansJP-Bold.ttf
+          weight: 700
