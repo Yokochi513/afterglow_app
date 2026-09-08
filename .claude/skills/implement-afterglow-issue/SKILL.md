@@ -27,6 +27,9 @@ Afterglow is a Flutter + Firebase app (`lib/` Flutter client, `functions/` TypeS
    - The Issue number, title, full body, and acceptance criteria.
    - Repo rules Codex must follow: layer split (UI in `lib/pages`/`lib/widgets`, data access in `lib/services`, models in `lib/models`; widgets never touch Firestore/Storage directly), DI-style services (`PostService({FirebaseFirestore? firestore})` with `.instance` defaults), immutable models (`const` constructor + `factory fromSnapshot`, defaults for missing fields), collection names as `static const`, Japanese comments, `flutter_lints` clean.
    - Hard constraints: do **not** edit `docs/`, do **not** add dependencies beyond the Issue scope, do **not** run `git commit`/`git push`/`gh` (Claude owns git), do **not** touch secrets or generated outputs. Existing test mocks: `fake_cloud_firestore` / `firebase_storage_mocks` / `firebase_auth_mocks`.
+   - **Do not run any framework/toolchain CLI** — no `flutter`, `dart`, `npm`, `node`, `firebase`, `codex`, or `gh`. Codex may only use plain OS-level commands (e.g. listing/moving/reading files) if it genuinely needs to inspect something its file-edit tools can't show. Codex's job is to **edit files only**; validation (`flutter analyze`, `dart format`, `flutter test`, `npm run build`, etc.) is exclusively Claude's job, run after Codex finishes (see Validation below). State this explicitly in the brief — do not include a "you may run these to self-check" section, even informally.
+     - This is a hard-learned rule, not a style preference: in a prior run, Codex invoked `dart format .` through its own sandboxed Windows command layer and it hung indefinitely — no subprocess was ever spawned, CPU usage stayed flat, and the run sat silent for ~15+ minutes before a human happened to ask about it. Running `dart format .` directly outside Codex's sandbox took 0.5s. The hang was in Codex's own command-execution layer, not in the toolchain itself — so the fix is to never let Codex invoke that toolchain in the first place, not to debug the sandbox.
+     - If a stall happens to coincide with a framework command Codex ran despite this instruction, that is a brief-compliance failure, not an ordinary stall — after recovering per step 8, tighten the brief's wording for any remaining fix rounds rather than just resuming as-is.
    - The expectation to add/update tests under `test/` mirroring `models`/`services`/`widgets`.
 7. Invoke Codex non-interactively from the repo root, feeding the brief via stdin:
 
@@ -65,6 +68,7 @@ Afterglow is a Flutter + Firebase app (`lib/` Flutter client, `functions/` TypeS
 
 ## Operating Rules
 
+- Codex never runs `flutter`, `dart`, `npm`, `node`, `firebase`, `gh`, or `codex` itself — only plain OS-level commands, and only if strictly needed to inspect the repo. All framework/toolchain commands (validation included) are run by Claude, outside Codex, after Codex reports it is done. Enforce this in every task brief you write, not just the first one.
 - Do not edit the canonical documents under `docs/`. If a spec change seems necessary, stop and report it on the Issue instead of implementing it.
 - Do not add dependencies beyond the Issue scope. Existing stack: `flutter_map` + `latlong2` (map), Firebase (`firebase_auth`, `cloud_firestore`, `firebase_storage`), test mocks listed above.
 - Stop and report genuine product ambiguity instead of letting Codex invent behavior; everything else proceeds automatically.
