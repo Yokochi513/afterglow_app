@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:afterglow_app/models/contest.dart';
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +18,7 @@ class PostAddDialog extends StatefulWidget {
   /// テストからサービスを差し替えるための任意の注入口（DI 方針）。
   /// 未指定なら `.instance` ベースの既定サービスを State 側で遅延生成する。
   final PostService? postService;
+  final ContestService? contestService;
   final AuthService? authService;
   final ImageService? imageService;
 
@@ -27,6 +30,7 @@ class PostAddDialog extends StatefulWidget {
     super.key,
     required this.pos,
     this.postService,
+    this.contestService,
     this.authService,
     this.imageService,
     this.initialImages,
@@ -61,6 +65,8 @@ class _PostAddDialogState extends State<PostAddDialog>
 
   // 注入がなければ既定のサービスを遅延生成する（Firebase 初期化前に触らないため）
   late final PostService postService = widget.postService ?? PostService();
+  late final ContestService contestService =
+      widget.contestService ?? ContestService(postService: postService);
   late final AuthService authService = widget.authService ?? AuthService();
   late final ImageService imageService = widget.imageService ?? ImageService();
 
@@ -69,6 +75,8 @@ class _PostAddDialogState extends State<PostAddDialog>
   final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
+  Contest? _selectedContest;
+  bool _stayAnonymous = false;
 
   /// 現在フォーカスされている入力欄の context。
   /// キーボード表示によるビューポート変化時のスクロール補正に使う。
@@ -493,6 +501,63 @@ class _PostAddDialogState extends State<PostAddDialog>
     );
   }
 
+  Widget _buildContestSelector() {
+    return StreamBuilder<List<Contest>>(
+      stream: contestService.getEntryOpenContests(),
+      builder: (context, snapshot) {
+        final contests = snapshot.data ?? const <Contest>[];
+        final selected =
+            contests.any((contest) => contest.id == _selectedContest?.id)
+            ? _selectedContest
+            : null;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButtonFormField<Contest?>(
+              value: selected,
+              decoration: const InputDecoration(
+                labelText: 'コンテストへエントリー',
+                border: OutlineInputBorder(),
+              ),
+              items: <DropdownMenuItem<Contest?>>[
+                const DropdownMenuItem<Contest?>(
+                  value: null,
+                  child: Text('通常投稿'),
+                ),
+                ...contests.map(
+                  (contest) => DropdownMenuItem<Contest?>(
+                    value: contest,
+                    child: Text(contest.title, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+              onChanged: _isPosting
+                  ? null
+                  : (contest) => setState(() {
+                      _selectedContest = contest;
+                      if (contest == null) {
+                        _stayAnonymous = false;
+                      }
+                    }),
+            ),
+            if (selected != null)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _stayAnonymous,
+                onChanged: _isPosting
+                    ? null
+                    : (value) =>
+                          setState(() => _stayAnonymous = value ?? false),
+                title: const Text('匿名のままにする'),
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -722,6 +787,8 @@ class _PostAddDialogState extends State<PostAddDialog>
                                   .toList(),
                             ),
                           ],
+                          const SizedBox(height: 16),
+                          _buildContestSelector(),
                           const SizedBox(height: 20),
                           SizedBox(
                             width: double.infinity,
@@ -782,7 +849,12 @@ class _PostAddDialogState extends State<PostAddDialog>
                                       );
 
                                       final success = await postService
-                                          .createPost(post, _selectedImages);
+                                          .createPost(
+                                            post,
+                                            _selectedImages,
+                                            contestId: _selectedContest?.id,
+                                            stayAnonymous: _stayAnonymous,
+                                          );
 
                                       if (!mounted) {
                                         return;

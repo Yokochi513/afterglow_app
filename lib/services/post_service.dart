@@ -18,11 +18,18 @@ class PostService {
   final ImageService _imageService;
 
   static const String postsCollection = 'posts';
+  static const String privateCollection = 'private';
+  static const String authorDocument = 'author';
 
   /// フィードの 1 ページあたりの取得件数（§8.2 / NFR_02）。
   static const int feedPageSize = 20;
 
-  Future<bool> createPost(Post post, List<XFile> imageFiles) async {
+  Future<bool> createPost(
+    Post post,
+    List<XFile> imageFiles, {
+    String? contestId,
+    bool stayAnonymous = false,
+  }) async {
     try {
       final imageUrls = await Future.wait(
         imageFiles.asMap().entries.map((entry) async {
@@ -48,8 +55,11 @@ class PostService {
         }),
       );
 
-      await _firestore.collection(postsCollection).doc(post.id).set({
-        'userId': post.userId,
+      final postRef = _firestore.collection(postsCollection).doc(post.id);
+      final isContestPost = contestId != null;
+      final bodyUserId = isContestPost ? '' : post.userId;
+      final postData = <String, dynamic>{
+        'userId': bodyUserId,
         'caption': post.caption,
         'imageUrls': imageUrls,
         'latitude': post.latitude,
@@ -60,7 +70,22 @@ class PostService {
         'likeCount': 0,
         'commentCount': 0,
         'createdAt': Timestamp.fromDate(post.createdAt),
-      });
+        if (isContestPost) ...{
+          'contestId': contestId,
+          'stayAnonymous': stayAnonymous,
+          'voteCount': 0,
+        },
+      };
+      if (isContestPost) {
+        final batch = _firestore.batch();
+        batch.set(postRef, postData);
+        batch.set(postRef.collection(privateCollection).doc(authorDocument), {
+          'userId': post.userId,
+        });
+        await batch.commit();
+      } else {
+        await postRef.set(postData);
+      }
       return true;
     } catch (_) {
       return false;
@@ -118,6 +143,7 @@ class PostService {
   /// Storage 上の画像も削除する。Storage の削除に失敗しても、投稿は一覧・マップ
   /// から消えるため削除自体は成功扱いとする。
   Future<bool> deletePost(Post post) async {
+    final authorId = await getAuthorId(post.id) ?? post.userId;
     try {
       await _firestore.collection(postsCollection).doc(post.id).delete();
     } catch (_) {
@@ -129,7 +155,7 @@ class PostService {
         try {
           await _storage
               .ref()
-              .child('posts/${post.userId}/${post.id}_$index.jpg')
+              .child('posts/$authorId/${post.id}_$index.jpg')
               .delete();
         } catch (_) {
           // 画像が既に存在しない等で失敗しても投稿削除は成功とみなす
@@ -146,6 +172,46 @@ class PostService {
           .map((document) => Post.fromSnapshot(document.id, document.data()))
           .toList(growable: false);
     });
+  }
+
+  Stream<List<Post>> getPostsByContest(String contestId) {
+    return _firestore
+        .collection(postsCollection)
+        .where('contestId', isEqualTo: contestId)
+        .snapshots()
+        .map((event) {
+          final posts = event.docs
+              .map(
+                (document) => Post.fromSnapshot(document.id, document.data()),
+              )
+              .toList();
+          posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return posts;
+        });
+  }
+
+  Future<String?> getAuthorId(String postId) async {
+    try {
+      final postRef = _firestore.collection(postsCollection).doc(postId);
+      final snapshot = await postRef.get();
+      final data = snapshot.data();
+      if (data == null) {
+        return null;
+      }
+      final userId = data['userId'] as String? ?? '';
+      final contestId = data['contestId'] as String?;
+      if (contestId == null || userId.isNotEmpty) {
+        return userId.isEmpty ? null : userId;
+      }
+
+      final author = await postRef
+          .collection(privateCollection)
+          .doc(authorDocument)
+          .get();
+      return author.data()?['userId'] as String?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// フィードの先頭ページ（最新 [limit] 件）を購読する。新規投稿や編集が

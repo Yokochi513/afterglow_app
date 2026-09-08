@@ -69,6 +69,10 @@ class _PostCardState extends State<PostCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildAuthorName(post),
+                    if (post.contestId != null) ...[
+                      const SizedBox(height: 4),
+                      _buildContestBadge(post),
+                    ],
                     const SizedBox(height: 4),
                     if (post.caption.isNotEmpty)
                       Text(
@@ -132,6 +136,17 @@ class _PostCardState extends State<PostCard> {
 
   /// 投稿者名。users ドキュメントを購読し、取得できるまでは UID を出さず空欄にする。
   Widget _buildAuthorName(Post post) {
+    if (post.userId.isEmpty) {
+      return Text(
+        '匿名',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(
+          context,
+        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+      );
+    }
+
     return StreamBuilder(
       stream: _userService.watchUser(post.userId),
       builder: (context, snapshot) {
@@ -145,6 +160,16 @@ class _PostCardState extends State<PostCard> {
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         );
       },
+    );
+  }
+
+  Widget _buildContestBadge(Post post) {
+    return Chip(
+      avatar: const Icon(Icons.emoji_events_outlined, size: 16),
+      label: Text('コンテスト参加中・${post.voteCount}票'),
+      labelStyle: Theme.of(context).textTheme.labelSmall,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
