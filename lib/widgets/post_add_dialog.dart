@@ -377,6 +377,12 @@ class _PostAddDialogState extends State<PostAddDialog>
   /// 選択済み画像のサムネイル一覧。ドラッグ&ドロップで並び替えられる。
   /// 並び順の 1 枚目がアルバム等のサムネイルとして使われる（Issue #40）。
   Widget _buildThumbnailStrip() {
+    // サムネイルは表示サイズ分だけデコードすれば十分なため、cacheWidth/
+    // cacheHeight で物理ピクセルサイズに縮小デコードさせる。指定しないと
+    // 元画像の解像度（iPhoneなら4000px級）のままデコードされ、選択枚数分の
+    // ビットマップがメモリに乗ってクラッシュする（Issue #71、docs/adr/0001）。
+    final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+    final thumbnailCacheSize = (_thumbnailSize * devicePixelRatio).round();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -422,6 +428,8 @@ class _PostAddDialogState extends State<PostAddDialog>
                               _previewImageBytes[index],
                               width: _thumbnailSize,
                               height: _thumbnailSize,
+                              cacheWidth: thumbnailCacheSize,
+                              cacheHeight: thumbnailCacheSize,
                               fit: BoxFit.cover,
                               gaplessPlayback: true,
                             ),
