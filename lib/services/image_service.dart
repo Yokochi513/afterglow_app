@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:exif_reader/exif_reader.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 // XFile を明示的に参照するため image_picker を直接 import する
 // （flutter_image_compress も再エクスポートするが、依存関係を明確にする）
 // ignore: unnecessary_import
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 
 /// 投稿画像の検証・圧縮を担うサービス（NFR_02 / §8.1）。
 ///
@@ -13,6 +15,44 @@ import 'package:image_picker/image_picker.dart';
 /// `compressImage` を override 可能にしている。
 class ImageService {
   ImageService();
+
+  /// 元画像の EXIF から撮影場所を読む。読めない場合は提案しない。
+  Future<LatLng?> extractGpsLocation(Uint8List bytes) async {
+    try {
+      final data = await readExifFromBytes(bytes);
+      double? coordinate(String name, String positive, String negative) {
+        final values = data.tags['GPS GPS$name']?.values;
+        final ref = data.tags['GPS GPS${name}Ref']?.printable;
+        if (values is! IfdRatios ||
+            values.ratios.length != 3 ||
+            values.ratios.any((ratio) => ratio.denominator == 0) ||
+            (ref != positive && ref != negative)) {
+          return null;
+        }
+        final parts = values.ratios.map((ratio) => ratio.toDouble()).toList();
+        if (parts.any((part) => !part.isFinite || part < 0) ||
+            parts[1] >= 60 ||
+            parts[2] >= 60) {
+          return null;
+        }
+        final degrees = parts[0] + parts[1] / 60 + parts[2] / 3600;
+        return ref == negative ? -degrees : degrees;
+      }
+
+      final latitude = coordinate('Latitude', 'N', 'S');
+      final longitude = coordinate('Longitude', 'E', 'W');
+      if (latitude == null ||
+          longitude == null ||
+          latitude.abs() > 90 ||
+          longitude.abs() > 180 ||
+          (latitude == 0 && longitude == 0)) {
+        return null;
+      }
+      return LatLng(latitude, longitude);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 許可する画像拡張子（NFR_02）。
   static const Set<String> allowedExtensions = {
