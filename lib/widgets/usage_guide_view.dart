@@ -38,7 +38,8 @@ class UsageGuideView extends StatelessWidget {
       description:
           '画面右上のプロフィールボタン（人型のアイコン）を押すと、自分が投稿した写真が'
           '一覧で並びます。写真をタップすると投稿の詳細が開き、鉛筆アイコンで編集、'
-          'ゴミ箱アイコンで削除できます。',
+          'ゴミ箱アイコンで削除できます。編集中は写真の並び替えや'
+          '「サムネイルに設定」で、一覧に表示される1枚目を選び直せます。',
     ),
     UsageGuideSection(
       icon: Icons.dynamic_feed_outlined,
