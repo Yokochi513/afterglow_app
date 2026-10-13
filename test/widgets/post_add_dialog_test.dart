@@ -291,7 +291,12 @@ void main() {
       final firstThumbnailImage = tester.widget<Image>(
         find.descendant(of: thumbnailOf(imageB), matching: find.byType(Image)),
       );
-      expect((firstThumbnailImage.image as MemoryImage).bytes, same(bytesB));
+      // サムネイルは cacheWidth 指定で ResizeImage に包まれるため中身を取り出す
+      final provider = firstThumbnailImage.image;
+      final memoryImage = provider is ResizeImage
+          ? provider.imageProvider
+          : provider;
+      expect((memoryImage as MemoryImage).bytes, same(bytesB));
 
       // 表示中だった画像（A）を追従してプレビューし続けること
       expect(find.text('3 / 3'), findsOneWidget);
