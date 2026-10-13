@@ -258,7 +258,26 @@ class _PostDetailViewState extends State<PostDetailView> {
     _syncPageController();
   }
 
-  /// 画像枚数が変化した後、PageController の現在ページを範囲内に合わせる。
+  /// 表示中の画像を [targetIndex] へ移動する（Issue #80）。先頭の画像が
+  /// サムネイルになるため、並び替えでサムネイルを選び直せる。
+  void _moveCurrentImage(int targetIndex) {
+    if (!_isEditing ||
+        _isSaving ||
+        targetIndex < 0 ||
+        targetIndex >= _imageUrls.length ||
+        targetIndex == _currentImageIndex) {
+      return;
+    }
+
+    setState(() {
+      final imageUrl = _imageUrls.removeAt(_currentImageIndex);
+      _imageUrls.insert(targetIndex, imageUrl);
+      _currentImageIndex = targetIndex;
+    });
+    _syncPageController();
+  }
+
+  /// 画像枚数や並び順が変化した後、PageController の現在ページを合わせる。
   void _syncPageController() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_pageController.hasClients) {
@@ -622,6 +641,25 @@ class _PostDetailViewState extends State<PostDetailView> {
                   backgroundColor: Colors.red,
                 ),
               ),
+            if (_isEditing && _currentImageIndex == 0)
+              Positioned(
+                bottom: 6,
+                left: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'サムネイル',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
             Positioned(
               bottom: 6,
               child: Container(
@@ -781,10 +819,42 @@ class _PostDetailViewState extends State<PostDetailView> {
   /// 編集中だけ出す注意書き。写真の追加は投稿時のみ。
   Widget _buildEditHint() {
     return Text(
-      '写真の追加はできません。不要な写真は削除してください。',
+      '写真の追加はできません。不要な写真は削除し、並び替えで1枚目（サムネイル）を変更できます。',
       style: Theme.of(
         context,
       ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+    );
+  }
+
+  /// 表示中の写真を移動し、先頭画像をサムネイルとして選び直す。
+  Widget _buildImageOrderControls() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        IconButton(
+          tooltip: '前へ移動',
+          onPressed: !_isSaving && _currentImageIndex > 0
+              ? () => _moveCurrentImage(_currentImageIndex - 1)
+              : null,
+          icon: const Icon(Icons.arrow_back),
+        ),
+        IconButton(
+          tooltip: '後ろへ移動',
+          onPressed: !_isSaving && _currentImageIndex < _imageUrls.length - 1
+              ? () => _moveCurrentImage(_currentImageIndex + 1)
+              : null,
+          icon: const Icon(Icons.arrow_forward),
+        ),
+        OutlinedButton.icon(
+          onPressed: !_isSaving && _currentImageIndex > 0
+              ? () => _moveCurrentImage(0)
+              : null,
+          icon: const Icon(Icons.image_outlined),
+          label: const Text('サムネイルに設定'),
+        ),
+      ],
     );
   }
 
@@ -813,7 +883,14 @@ class _PostDetailViewState extends State<PostDetailView> {
         _buildAuthorRow(),
         const SizedBox(height: 12),
         _buildGallery(),
-        if (_isEditing) ...[const SizedBox(height: 8), _buildEditHint()],
+        if (_isEditing) ...[
+          if (_imageUrls.length > 1) ...[
+            const SizedBox(height: 8),
+            _buildImageOrderControls(),
+          ],
+          const SizedBox(height: 8),
+          _buildEditHint(),
+        ],
         if (widget.reactionBar != null) ...[
           const SizedBox(height: 8),
           widget.reactionBar!,
@@ -850,7 +927,14 @@ class _PostDetailViewState extends State<PostDetailView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildGallery(),
-              if (_isEditing) ...[const SizedBox(height: 8), _buildEditHint()],
+              if (_isEditing) ...[
+                if (_imageUrls.length > 1) ...[
+                  const SizedBox(height: 8),
+                  _buildImageOrderControls(),
+                ],
+                const SizedBox(height: 8),
+                _buildEditHint(),
+              ],
             ],
           ),
         ),

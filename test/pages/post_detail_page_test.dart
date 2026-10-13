@@ -572,6 +572,176 @@ void main() {
     ]);
   });
 
+  group('写真の並び替え（Issue #80）', () {
+    const urls = [
+      'https://example.com/1.jpg',
+      'https://example.com/2.jpg',
+      'https://example.com/3.jpg',
+    ];
+
+    Future<FakeFirebaseFirestore> enterEditMode(
+      WidgetTester tester, {
+      List<String> imageUrls = urls,
+    }) async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore
+          .collection(PostService.postsCollection)
+          .doc('post-1')
+          .set({
+            'userId': 'user-1',
+            'caption': 'sunset view',
+            'imageUrls': imageUrls,
+            'latitude': 35.0,
+            'longitude': 139.0,
+          });
+      await tester.pumpWidget(
+        _wrap(
+          _page(
+            _post(imageUrls: imageUrls),
+            authService: _authServiceFor('user-1'),
+            postService: PostService(
+              firestore: firestore,
+              storage: MockFirebaseStorage(),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pump();
+      return firestore;
+    }
+
+    Future<void> tapControl(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    Future<void> expectSavedOrder(
+      FakeFirebaseFirestore firestore,
+      List<String> expected,
+    ) async {
+      final snapshot = await firestore
+          .collection(PostService.postsCollection)
+          .doc('post-1')
+          .get();
+      expect(List<String>.from(snapshot.data()?['imageUrls']), expected);
+    }
+
+    testWidgets('sets the second photo as the thumbnail and saves', (
+      tester,
+    ) async {
+      final firestore = await enterEditMode(tester);
+      await tapControl(tester, find.byIcon(Icons.chevron_right));
+      expect(find.text('2 / 3'), findsOneWidget);
+      expect(find.text('サムネイル'), findsNothing);
+      await tapControl(tester, find.text('サムネイルに設定'));
+      expect(find.text('1 / 3'), findsOneWidget);
+      expect(find.text('サムネイル'), findsOneWidget);
+      expect(
+        tester.widget<PageView>(find.byType(PageView)).controller!.page,
+        0,
+      );
+      expect(
+        tester
+            .widget<CachedNetworkImage>(find.byType(CachedNetworkImage).first)
+            .imageUrl,
+        urls[1],
+      );
+      await tapControl(tester, find.widgetWithText(TextButton, '保存'));
+      await expectSavedOrder(firestore, [urls[1], urls[0], urls[2]]);
+    });
+
+    testWidgets('moves a photo backward and saves the order', (tester) async {
+      final firestore = await enterEditMode(tester);
+      await tapControl(tester, find.byTooltip('後ろへ移動'));
+      expect(find.text('2 / 3'), findsOneWidget);
+      expect(
+        tester.widget<PageView>(find.byType(PageView)).controller!.page,
+        1,
+      );
+      await tapControl(tester, find.widgetWithText(TextButton, '保存'));
+      await expectSavedOrder(firestore, [urls[1], urls[0], urls[2]]);
+    });
+
+    testWidgets('cancels reordering and restores the displayed order', (
+      tester,
+    ) async {
+      final firestore = await enterEditMode(tester);
+      await tapControl(tester, find.byTooltip('後ろへ移動'));
+      await tapControl(tester, find.widgetWithText(TextButton, 'キャンセル'));
+      await expectSavedOrder(firestore, urls);
+      expect(find.text('2 / 3'), findsOneWidget);
+      final pageView = tester.widget<PageView>(find.byType(PageView));
+      expect(pageView.controller!.page, 1);
+      await tapControl(tester, find.byIcon(Icons.chevron_left));
+      expect(find.text('1 / 3'), findsOneWidget);
+      expect(
+        tester
+            .widget<CachedNetworkImage>(find.byType(CachedNetworkImage).first)
+            .imageUrl,
+        urls[0],
+      );
+      expect(find.text('サムネイル'), findsNothing);
+    });
+
+    testWidgets('disables first-photo actions and shows the thumbnail badge', (
+      tester,
+    ) async {
+      await enterEditMode(tester);
+      expect(find.text('サムネイル'), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.arrow_back),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'サムネイルに設定'),
+            )
+            .onPressed,
+        isNull,
+      );
+    });
+
+    testWidgets('hides reordering controls for a single photo', (tester) async {
+      await enterEditMode(tester, imageUrls: [urls[0]]);
+      expect(find.byTooltip('前へ移動'), findsNothing);
+      expect(find.byTooltip('後ろへ移動'), findsNothing);
+      expect(find.text('サムネイルに設定'), findsNothing);
+      expect(find.text('サムネイル'), findsOneWidget);
+    });
+
+    testWidgets('saves the remaining order after reordering and deletion', (
+      tester,
+    ) async {
+      final firestore = await enterEditMode(tester);
+      await tapControl(tester, find.byTooltip('後ろへ移動'));
+      await tapControl(tester, find.byIcon(Icons.delete));
+      expect(find.text('2 / 2'), findsOneWidget);
+      await tapControl(tester, find.text('サムネイルに設定'));
+      await tapControl(tester, find.widgetWithText(TextButton, '保存'));
+      await expectSavedOrder(firestore, [urls[2], urls[1]]);
+    });
+
+    testWidgets('shows reordering controls in the two-column layout', (
+      tester,
+    ) async {
+      await setScreenSize(tester, const Size(1400, 1000));
+      await enterEditMode(tester);
+      expect(find.byKey(PostDetailView.twoColumnKey), findsOneWidget);
+      expect(find.byTooltip('前へ移動'), findsOneWidget);
+      expect(find.byTooltip('後ろへ移動'), findsOneWidget);
+      expect(find.text('サムネイルに設定'), findsOneWidget);
+    });
+  });
+
   testWidgets('編集モードで「位置を変更」ボタンを表示する', (tester) async {
     await tester.pumpWidget(
       _wrap(_page(_post(), authService: _authServiceFor('user-1'))),
