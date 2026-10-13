@@ -50,6 +50,7 @@ dependencies:
   flutter_image_compress: ^2.4.0
   url_launcher: ^6.3.1
   exif_reader: ^4.2.0
+  firebase_messaging: ^16.4.1
 
 dev_dependencies:
   flutter_test:

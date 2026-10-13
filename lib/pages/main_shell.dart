@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:afterglow_app/pages/album_list_page.dart';
 import 'package:afterglow_app/pages/contest_list_page.dart';
 import 'package:afterglow_app/pages/event_page.dart';
 import 'package:afterglow_app/pages/feed_page.dart';
 import 'package:afterglow_app/pages/map_screen.dart';
+import 'package:afterglow_app/pages/notification_page.dart';
 import 'package:afterglow_app/pages/profile_page.dart';
+import 'package:afterglow_app/services/auth_service.dart';
+import 'package:afterglow_app/services/push_notification_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 /// 承認済みユーザーのアプリ本体。
@@ -32,6 +38,59 @@ class _MainShellState extends State<MainShell> {
 
   /// 現在表示中のタブ。既存挙動を保つため Map を初期表示にする。
   int _currentIndex = _mapIndex;
+
+  final PushNotificationService _push = PushNotificationService();
+  final List<StreamSubscription<RemoteMessage>> _pushSubscriptions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _startPushNotifications();
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _pushSubscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+
+  /// プッシュ通知（PS_07）の受信を開始する。許可済みの端末ならトークンを
+  /// 登録し直し、フォアグラウンド受信はスナックバーで知らせる。
+  /// 許可の要求は通知一覧の「有効にする」から行う（起動直後に許可ダイアログを
+  /// 出さない）。プッシュ通知が使えない環境でもアプリ本体は動かす。
+  Future<void> _startPushNotifications() async {
+    final uid = AuthService().currentUserId;
+    if (uid == null || !_push.isSupported) return;
+    try {
+      await _push.registerIfPermitted(uid);
+      _pushSubscriptions
+        ..add(_push.onForegroundMessage.listen(_showForegroundMessage))
+        ..add(_push.onMessageOpenedApp.listen((_) => _openNotifications()));
+    } catch (_) {
+      // 通知非対応ブラウザ等。アプリ内通知は引き続き利用できる。
+    }
+  }
+
+  void _showForegroundMessage(RemoteMessage message) {
+    if (!mounted) return;
+    // タイトルはアプリ名固定なので本文だけを出す（Functions の onNotificationCreated）
+    final body = message.notification?.body ?? '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(body.isEmpty ? '新しい通知があります' : body),
+        action: SnackBarAction(label: '見る', onPressed: _openNotifications),
+      ),
+    );
+  }
+
+  void _openNotifications() {
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const NotificationPage()));
+  }
 
   /// [IndexedStack] に並べる各タブの本体。
   static const List<Widget> _pages = <Widget>[

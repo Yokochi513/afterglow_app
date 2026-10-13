@@ -37,7 +37,11 @@ jobs:
 
       - name: Build web
         # 公開 URL が https://<owner>.github.io/afterglow_app/ のため base-href を合わせる
-        run: flutter build web --release --base-href "/afterglow_app/"
+        # FCM_VAPID_KEY（Web Push の VAPID 公開鍵）はリポジトリ変数またはシークレットで渡す。
+        # 未設定ならプッシュ通知だけが無効になる（アプリ内通知は動く）。
+        run: >-
+          flutter build web --release --base-href "/afterglow_app/"
+          --dart-define=FCM_VAPID_KEY=${{ vars.FCM_VAPID_KEY || secrets.FCM_VAPID_KEY }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
