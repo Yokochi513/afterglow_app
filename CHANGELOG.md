@@ -10,8 +10,13 @@
 
 ## [Unreleased]
 
+## [1.5.0+6] - 2026-10-13
+
 ### Added
 
+- 自分の投稿へのいいね・コメントや、参加予定のイベントの更新をお知らせする通知機能を追加しました。地図画面右上のベルから確認できます。
+- 通知画面からプッシュ通知を有効にすると、ブラウザで通知を受け取れるようになりました。
+- 1 週間分の未読通知をまとめたメールを毎週月曜に受け取れるようになりました。通知画面の「週次メール通知」で停止できます。
 - 位置情報付きの写真を選ぶと、写真の撮影場所に投稿するか提案するようにしました（Android では端末の仕様により提案されないことがあります）。
 - 投稿の編集で写真を並び替えられるようにし、「サムネイルに設定」で一覧やアルバムに表示される1枚目をあとから選び直せるようにしました。
 
@@ -111,7 +116,8 @@
 
 - Firestore / Storage のセキュリティルールで承認済みユーザーのみを許可。
 
-[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.5.0...HEAD
+[1.5.0+6]: https://github.com/Yokochi513/afterglow_app/compare/v1.4.0...v1.5.0
 [1.4.0+5]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.1...v1.4.0
 [1.3.1+4]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.0...v1.3.1
 [1.3.0+3]: https://github.com/Yokochi513/afterglow_app/compare/v1.2.0...v1.3.0
