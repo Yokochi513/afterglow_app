@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
@@ -21,39 +22,80 @@ const double _dialogInsetVertical = 24 * 2;
 const double _contentPaddingVertical = 16 + 24;
 
 /// 未初期化の Firebase に触れないよう、常にモックを注入したダイアログを組み立てる。
-Widget _dialog({required double keyboardHeight, List<XFile>? initialImages}) {
+Widget _dialog({
+  required double keyboardHeight,
+  List<XFile>? initialImages,
+  ImageService? imageService,
+  PostService? injectedPostService,
+  bool signedIn = false,
+}) {
   final firestore = FakeFirebaseFirestore();
-  final postService = PostService(
-    firestore: firestore,
-    storage: MockFirebaseStorage(),
-  );
+  final postService =
+      injectedPostService ??
+      PostService(firestore: firestore, storage: MockFirebaseStorage());
 
   return MaterialApp(
-    home: Builder(
-      builder: (context) {
-        return MediaQuery(
-          // キーボード表示を模擬する（viewInsets.bottom にキーボード高さが入る）
-          data: MediaQuery.of(
-            context,
-          ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboardHeight)),
-          child: PostAddDialog(
-            pos: const LatLng(35.0, 139.0),
-            postService: postService,
-            contestService: ContestService(
-              firestore: firestore,
+    home: Scaffold(
+      body: Builder(
+        builder: (context) {
+          return MediaQuery(
+            // キーボード表示を模擬する（viewInsets.bottom にキーボード高さが入る）
+            data: MediaQuery.of(
+              context,
+            ).copyWith(viewInsets: EdgeInsets.only(bottom: keyboardHeight)),
+            child: PostAddDialog(
+              pos: const LatLng(35.0, 139.0),
               postService: postService,
+              contestService: ContestService(
+                firestore: firestore,
+                postService: postService,
+              ),
+              authService: AuthService(
+                auth: MockFirebaseAuth(
+                  mockUser: MockUser(uid: 'photo-user'),
+                  signedIn: signedIn,
+                ),
+                firestore: firestore,
+              ),
+              imageService: imageService ?? _GpsImageService(),
+              initialImages: initialImages,
             ),
-            authService: AuthService(
-              auth: MockFirebaseAuth(),
-              firestore: firestore,
-            ),
-            imageService: ImageService(),
-            initialImages: initialImages,
-          ),
-        );
-      },
+          );
+        },
+      ),
     ),
   );
+}
+
+class _GpsImageService extends ImageService {
+  _GpsImageService([this.locations = const []]);
+
+  final List<LatLng?> locations;
+  int reads = 0;
+
+  @override
+  Future<LatLng?> extractGpsLocation(Uint8List bytes) async {
+    final index = reads++;
+    return index < locations.length ? locations[index] : null;
+  }
+}
+
+class _RecordingPostService extends PostService {
+  _RecordingPostService()
+    : super(firestore: FakeFirebaseFirestore(), storage: MockFirebaseStorage());
+
+  Post? submitted;
+
+  @override
+  Future<bool> createPost(
+    Post post,
+    List<XFile> imageFiles, {
+    String? contestId,
+    bool stayAnonymous = false,
+  }) async {
+    submitted = post;
+    return false;
+  }
 }
 
 /// [color] 一色で塗った 4x4 の PNG を生成する。
@@ -71,6 +113,112 @@ void main() {
   // 画面が縦に狭い前提にして、キーボードの有無にかかわらず
   // ダイアログの中身がスクロール領域からあふれる状況を作る。
   const screenSize = Size(400, 700);
+
+  group('写真の撮影場所（Issue #46）', () {
+    const gps = LatLng(36, 140);
+    const other = LatLng(37, 141);
+
+    Future<void> pumpGps(
+      WidgetTester tester,
+      List<LatLng?> locations, {
+      PostService? postService,
+    }) async {
+      tester.view.physicalSize = screenSize;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      late Uint8List bytes;
+      await tester.runAsync(() async {
+        bytes = await _encodePng(Colors.red);
+      });
+      await tester.pumpWidget(
+        _dialog(
+          keyboardHeight: 0,
+          initialImages: [
+            for (var i = 0; i < locations.length; i++)
+              XFile.fromData(bytes, name: '$i.png'),
+          ],
+          imageService: _GpsImageService(locations),
+          injectedPostService: postService,
+          signedIn: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> press(WidgetTester tester, String key) async {
+      final button = find.byKey(Key(key));
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('遠い GPS を提案し、採用・元に戻す・無視ができる', (tester) async {
+      await pumpGps(tester, [gps]);
+      expect(find.byKey(const Key('photoLocationBanner')), findsOneWidget);
+      expect(find.textContaining('1枚目の写真の撮影場所'), findsOneWidget);
+      await press(tester, 'usePhotoLocation');
+      expect(find.text('撮影場所に投稿します'), findsOneWidget);
+      await press(tester, 'restoreTappedLocation');
+      expect(find.byKey(const Key('photoLocationBanner')), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await pumpGps(tester, [gps]);
+      await press(tester, 'ignorePhotoLocation');
+      expect(find.byKey(const Key('photoLocationBanner')), findsNothing);
+    });
+
+    testWidgets('50m 以内と GPS なしではバナーを表示しない', (tester) async {
+      await pumpGps(tester, [null, const LatLng(35.0001, 139)]);
+      expect(find.byKey(const Key('photoLocationBanner')), findsNothing);
+    });
+
+    testWidgets('採用位置を PostService に渡し、元に戻すとタップ地点を渡す', (tester) async {
+      final service = _RecordingPostService();
+      await pumpGps(tester, [gps], postService: service);
+      await press(tester, 'usePhotoLocation');
+      final submit = find.widgetWithText(ElevatedButton, '投稿する');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.submitted!.latitude, gps.latitude);
+      expect(service.submitted!.longitude, gps.longitude);
+
+      await press(tester, 'restoreTappedLocation');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.submitted!.latitude, 35);
+      expect(service.submitted!.longitude, 139);
+    });
+
+    testWidgets('並べ替えは再提案だけ行い、採用写真の削除時だけ位置を戻す', (tester) async {
+      final service = _RecordingPostService();
+      await pumpGps(tester, [gps, other], postService: service);
+      await press(tester, 'usePhotoLocation');
+      tester
+          .widget<ReorderableListView>(find.byType(ReorderableListView))
+          .onReorder!(0, 2);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('撮影場所が変わりました（1枚目'), findsOneWidget);
+      final submit = find.widgetWithText(ElevatedButton, '投稿する');
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.submitted!.latitude, gps.latitude);
+      ScaffoldMessenger.of(
+        tester.element(find.byType(PostAddDialog)),
+      ).removeCurrentSnackBar();
+      await tester.ensureVisible(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(find.text('撮影場所の写真が外されたため、タップした場所に戻しました'), findsOneWidget);
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(service.submitted!.latitude, 35);
+      expect(service.submitted!.longitude, 139);
+    });
+  });
 
   Future<void> pumpWithKeyboard(
     WidgetTester tester,
