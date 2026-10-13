@@ -29,7 +29,8 @@ class UsageGuideView extends StatelessWidget {
       description:
           '地図の好きな場所をタップすると、画面下に「ここに投稿」の確認バーが出ます。'
           '写真とコメントを添えて投稿すると、その場所にピンが立ちます。'
-          '位置情報付きの写真を選ぶと、撮影場所に投稿するか提案されます。',
+          '位置情報付きの写真を選ぶと、撮影場所に投稿するか提案されます'
+          '（Android では端末の仕様により提案されないことがあります）。',
     ),
     UsageGuideSection(
       icon: Icons.account_circle,
