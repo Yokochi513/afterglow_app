@@ -28,7 +28,9 @@ class UsageGuideView extends StatelessWidget {
       title: '地図から投稿する',
       description:
           '地図の好きな場所をタップすると、画面下に「ここに投稿」の確認バーが出ます。'
-          '写真とコメントを添えて投稿すると、その場所にピンが立ちます。',
+          '写真とコメントを添えて投稿すると、その場所にピンが立ちます。'
+          '位置情報付きの写真を選ぶと、撮影場所に投稿するか提案されます'
+          '（Android では端末の仕様により提案されないことがあります）。',
     ),
     UsageGuideSection(
       icon: Icons.account_circle,
@@ -36,7 +38,8 @@ class UsageGuideView extends StatelessWidget {
       description:
           '画面右上のプロフィールボタン（人型のアイコン）を押すと、自分が投稿した写真が'
           '一覧で並びます。写真をタップすると投稿の詳細が開き、鉛筆アイコンで編集、'
-          'ゴミ箱アイコンで削除できます。',
+          'ゴミ箱アイコンで削除できます。編集中は写真の並び替えや'
+          '「サムネイルに設定」で、一覧に表示される1枚目を選び直せます。',
     ),
     UsageGuideSection(
       icon: Icons.dynamic_feed_outlined,

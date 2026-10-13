@@ -6,6 +6,7 @@ import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
+import 'package:afterglow_app/services/photo_location_suggestion.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -72,6 +73,10 @@ class _PostAddDialogState extends State<PostAddDialog>
 
   final List<XFile> _selectedImages = [];
   final List<Uint8List> _previewImageBytes = [];
+  final List<LatLng?> _photoLocations = [];
+  LatLng? _adoptedLocation;
+  LatLng? _ignoredLocation;
+  PhotoLocationResult _photoLocationResult = const NoPhotoLocationSuggestion();
   final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
@@ -104,9 +109,17 @@ class _PostAddDialogState extends State<PostAddDialog>
     if (!mounted) {
       return;
     }
+    final locations = await Future.wait(
+      previewBytes.map(imageService.extractGpsLocation),
+    );
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _selectedImages.addAll(toAdd);
       _previewImageBytes.addAll(previewBytes);
+      _photoLocations.addAll(locations);
+      _refreshPhotoLocation();
     });
   }
 
@@ -210,7 +223,7 @@ class _PostAddDialogState extends State<PostAddDialog>
 
     // 圧縮は投稿時に flutter_image_compress で行うため、ここでは等倍で取得する
     final List<XFile> picked = await _imagePicker.pickMultiImage();
-    if (picked.isEmpty) {
+    if (!mounted || picked.isEmpty) {
       return;
     }
 
@@ -247,11 +260,122 @@ class _PostAddDialogState extends State<PostAddDialog>
     if (!mounted) {
       return;
     }
+    final locations = await Future.wait(
+      previewBytes.map(imageService.extractGpsLocation),
+    );
+    if (!mounted) {
+      return;
+    }
 
     setState(() {
       _selectedImages.addAll(toAdd);
       _previewImageBytes.addAll(previewBytes);
+      _photoLocations.addAll(locations);
+      _refreshPhotoLocation();
     });
+  }
+
+  /// 写真の変更後に再評価する。採用写真がなくなった場合だけ位置を戻す。
+  void _refreshPhotoLocation() {
+    _photoLocationResult = PhotoLocationSuggestions.evaluate(
+      photoLocations: _photoLocations,
+      tappedLocation: widget.pos,
+      adoptedLocation: _adoptedLocation,
+      ignoredLocation: _ignoredLocation,
+    );
+    if (_photoLocationResult is RestoreTappedLocation) {
+      _adoptedLocation = null;
+      _photoLocationResult = PhotoLocationSuggestions.evaluate(
+        photoLocations: _photoLocations,
+        tappedLocation: widget.pos,
+        ignoredLocation: _ignoredLocation,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('撮影場所の写真が外されたため、タップした場所に戻しました')),
+      );
+    }
+  }
+
+  /// 撮影場所の提案・採用状態を示すバナー（Issue #46）。
+  /// 提案も採用もしていないときは何も表示しない。
+  Widget _buildPhotoLocationBanner() {
+    final result = _photoLocationResult;
+    if (result is! PhotoLocationSuggestion && result is! PhotoLocationAdopted) {
+      return const SizedBox.shrink();
+    }
+    final suggestion = result is PhotoLocationSuggestion ? result : null;
+    final message = suggestion == null
+        ? '撮影場所に投稿します'
+        : suggestion.isReproposal
+        ? '撮影場所が変わりました（${suggestion.photoNumber}枚目の写真）'
+        : '${suggestion.photoNumber}枚目の写真の撮影場所が見つかりました'
+              '（タップ地点から${PhotoLocationSuggestions.formatDistance(suggestion.distanceMeters)}）';
+    return Container(
+      key: const Key('photoLocationBanner'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 絵文字は同梱フォントに含まれず Web で文字欠けするためアイコンで示す
+          Row(
+            children: [
+              const Icon(Icons.place, size: 16),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+          Wrap(
+            children: [
+              if (suggestion != null) ...[
+                TextButton(
+                  key: const Key('usePhotoLocation'),
+                  onPressed: () {
+                    setState(() {
+                      _adoptedLocation = suggestion.location;
+                      _ignoredLocation = null;
+                      _refreshPhotoLocation();
+                    });
+                  },
+                  child: const Text('撮影場所を使う'),
+                ),
+                TextButton(
+                  key: const Key('ignorePhotoLocation'),
+                  onPressed: () {
+                    setState(() {
+                      _ignoredLocation = suggestion.location;
+                      _refreshPhotoLocation();
+                    });
+                  },
+                  child: const Text('無視'),
+                ),
+              ],
+              if (_adoptedLocation != null)
+                TextButton(
+                  key: const Key('restoreTappedLocation'),
+                  onPressed: () {
+                    setState(() {
+                      _ignoredLocation = _adoptedLocation;
+                      _adoptedLocation = null;
+                      _refreshPhotoLocation();
+                    });
+                  },
+                  child: const Text('元に戻す'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   // タグ入力（`#タグ名` を空白・カンマ区切りで複数追加）— PS_03
@@ -290,6 +414,8 @@ class _PostAddDialogState extends State<PostAddDialog>
     setState(() {
       _selectedImages.removeAt(index);
       _previewImageBytes.removeAt(index);
+      _photoLocations.removeAt(index);
+      _refreshPhotoLocation();
       if (_selectedImages.isEmpty) {
         _currentImageIndex = 0;
       } else if (_currentImageIndex >= _selectedImages.length) {
@@ -317,8 +443,11 @@ class _PostAddDialogState extends State<PostAddDialog>
     setState(() {
       final image = _selectedImages.removeAt(oldIndex);
       final bytes = _previewImageBytes.removeAt(oldIndex);
+      final location = _photoLocations.removeAt(oldIndex);
       _selectedImages.insert(newIndex, image);
       _previewImageBytes.insert(newIndex, bytes);
+      _photoLocations.insert(newIndex, location);
+      _refreshPhotoLocation();
 
       if (_currentImageIndex == oldIndex) {
         _currentImageIndex = newIndex;
@@ -721,6 +850,7 @@ class _PostAddDialogState extends State<PostAddDialog>
                           // 1 枚では並び替えの意味がないため 2 枚以上で表示する
                           if (_selectedImages.length > 1)
                             _buildThumbnailStrip(),
+                          _buildPhotoLocationBanner(),
                           const SizedBox(height: 8),
                           // 画像枚数の表示と追加（PS_01）
                           Row(
@@ -839,8 +969,12 @@ class _PostAddDialogState extends State<PostAddDialog>
                                         userId: userId,
                                         caption: _captionController.text,
                                         imageUrls: [],
-                                        latitude: widget.pos.latitude,
-                                        longitude: widget.pos.longitude,
+                                        latitude:
+                                            (_adoptedLocation ?? widget.pos)
+                                                .latitude,
+                                        longitude:
+                                            (_adoptedLocation ?? widget.pos)
+                                                .longitude,
                                         createdAt: DateTime.now(),
                                         locationName: locationName.isEmpty
                                             ? null

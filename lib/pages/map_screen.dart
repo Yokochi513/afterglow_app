@@ -10,6 +10,7 @@ import 'package:afterglow_app/services/release_note_service.dart';
 import 'package:afterglow_app/services/usage_guide_service.dart';
 import 'package:afterglow_app/widgets/comment_section.dart';
 import 'package:afterglow_app/widgets/map_search_bar.dart';
+import 'package:afterglow_app/widgets/notification_bell.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:afterglow_app/widgets/post_location_confirm_bar.dart';
 import 'package:afterglow_app/widgets/post_widget.dart';
@@ -267,6 +268,7 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: const Text('Map'),
         actions: [
+          const NotificationBell(),
           IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: '使い方',

@@ -227,12 +227,19 @@ service cloud.firestore {
       }
     }
 
-    // 通知（§3.9）: 受信者本人の読み取りのみ。
-    // 作成・更新・削除は Functions / Admin SDK が行うためクライアントには許可しない
+    // 通知（§3.9）: 受信者本人の読み取りと、既読化（isRead を true にする
+    // 更新）のみ。NotificationService.markAsRead（§6.6）が使う。
+    // 作成・削除と isRead 以外の更新は Functions / Admin SDK が行うため
+    // クライアントには許可しない
     match /notifications/{notificationId} {
       allow read: if isApproved()
         && resource.data.recipientId == request.auth.uid;
-      allow write: if false;
+      allow update: if isApproved()
+        && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['isRead'])
+        && request.resource.data.isRead == true;
+      allow create, delete: if false;
     }
 
     // 承認トークン: クライアントからは一切アクセス不可（Functions のみ）
