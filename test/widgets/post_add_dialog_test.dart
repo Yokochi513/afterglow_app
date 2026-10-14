@@ -2,12 +2,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/models/contest.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/widgets/post_add_dialog.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/gestures.dart';
@@ -27,9 +29,10 @@ Widget _dialog({
   List<XFile>? initialImages,
   ImageService? imageService,
   PostService? injectedPostService,
+  FakeFirebaseFirestore? injectedFirestore,
   bool signedIn = false,
 }) {
-  final firestore = FakeFirebaseFirestore();
+  final firestore = injectedFirestore ?? FakeFirebaseFirestore();
   final postService =
       injectedPostService ??
       PostService(firestore: firestore, storage: MockFirebaseStorage());
@@ -85,6 +88,7 @@ class _RecordingPostService extends PostService {
     : super(firestore: FakeFirebaseFirestore(), storage: MockFirebaseStorage());
 
   Post? submitted;
+  String? submittedContestId;
 
   @override
   Future<bool> createPost(
@@ -94,6 +98,7 @@ class _RecordingPostService extends PostService {
     bool stayAnonymous = false,
   }) async {
     submitted = post;
+    submittedContestId = contestId;
     return false;
   }
 }
@@ -113,6 +118,97 @@ void main() {
   // 画面が縦に狭い前提にして、キーボードの有無にかかわらず
   // ダイアログの中身がスクロール領域からあふれる状況を作る。
   const screenSize = Size(400, 700);
+
+  group('コンテスト参加のトグル', () {
+    late FakeFirebaseFirestore firestore;
+    late _RecordingPostService service;
+
+    Future<void> pumpDialog(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(500, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      firestore = FakeFirebaseFirestore();
+      service = _RecordingPostService();
+      for (final entry in {'sunset': '夕焼けコンテスト', 'night': '夜景コンテスト'}.entries) {
+        await firestore.doc('contests/${entry.key}').set({
+          'title': entry.value,
+          'entryDeadline': Timestamp.fromDate(
+            DateTime.now().add(const Duration(days: 1)),
+          ),
+        });
+      }
+      late Uint8List bytes;
+      await tester.runAsync(() async {
+        bytes = await _encodePng(Colors.red);
+      });
+      await tester.pumpWidget(
+        _dialog(
+          keyboardHeight: 0,
+          initialImages: [XFile.fromData(bytes, name: 'photo.png')],
+          injectedPostService: service,
+          injectedFirestore: firestore,
+          signedIn: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> press(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    final selector = find.byWidgetPredicate(
+      (widget) => widget is DropdownButtonFormField<Contest>,
+    );
+    final toggle = find.widgetWithText(SwitchListTile, 'コンテストに参加する');
+    final submit = find.widgetWithText(ElevatedButton, '投稿する');
+
+    testWidgets('既定はトグルがオフで通常投稿になる', (tester) async {
+      await pumpDialog(tester);
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(selector, findsNothing);
+      await press(tester, submit);
+      expect(service.submitted, isNotNull);
+      expect(service.submittedContestId, isNull);
+    });
+
+    testWidgets('オン後に一覧から選択して参加し、オフで選択を解除する', (tester) async {
+      await pumpDialog(tester);
+      await press(tester, toggle);
+      expect(selector, findsOneWidget);
+      await press(tester, selector);
+      expect(find.text('夕焼けコンテスト'), findsOneWidget);
+      expect(find.text('夜景コンテスト'), findsOneWidget);
+      await press(tester, find.text('夕焼けコンテスト'));
+      await press(tester, submit);
+      expect(service.submittedContestId, 'sunset');
+      await press(tester, toggle);
+      expect(selector, findsNothing);
+      await press(tester, submit);
+      expect(service.submittedContestId, isNull);
+      ScaffoldMessenger.of(tester.element(submit)).clearSnackBars();
+      await tester.pumpAndSettle();
+      await press(tester, toggle);
+      service.submitted = null;
+      await press(tester, submit);
+      expect(service.submitted, isNull);
+      expect(find.text('参加するコンテストを選択してください'), findsOneWidget);
+    });
+
+    testWidgets('参加対象が削除されても通常投稿へ切り替わらない', (tester) async {
+      await pumpDialog(tester);
+      await press(tester, toggle);
+      await press(tester, selector);
+      await press(tester, find.text('夕焼けコンテスト'));
+      await firestore.doc('contests/sunset').delete();
+      await tester.pumpAndSettle();
+      await press(tester, submit);
+      expect(service.submitted, isNull);
+      expect(find.text('参加するコンテストを選択してください'), findsOneWidget);
+    });
+  });
 
   group('写真の撮影場所（Issue #46）', () {
     const gps = LatLng(36, 140);

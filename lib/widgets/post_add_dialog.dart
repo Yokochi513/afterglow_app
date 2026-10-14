@@ -80,7 +80,10 @@ class _PostAddDialogState extends State<PostAddDialog>
   final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
+  bool _participateInContest = false;
   Contest? _selectedContest;
+  late final Stream<List<Contest>> _entryOpenContests = contestService
+      .getEntryOpenContests();
 
   /// 現在フォーカスされている入力欄の context。
   /// キーボード表示によるビューポート変化時のスクロール補正に使う。
@@ -625,32 +628,59 @@ class _PostAddDialogState extends State<PostAddDialog>
   }
 
   Widget _buildContestSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('コンテストに参加する'),
+          subtitle: _participateInContest ? null : const Text('通常投稿'),
+          value: _participateInContest,
+          onChanged: _isPosting
+              ? null
+              : (value) => setState(() {
+                  _participateInContest = value;
+                  if (!value) _selectedContest = null;
+                }),
+        ),
+        if (_participateInContest) _buildContestList(),
+      ],
+    );
+  }
+
+  Widget _buildContestList() {
     return StreamBuilder<List<Contest>>(
-      stream: contestService.getEntryOpenContests(),
+      stream: _entryOpenContests,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          _selectedContest = null;
+          return const Text('コンテスト一覧を取得できませんでした');
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
         final contests = snapshot.data ?? const <Contest>[];
         final selected = contests
             .where((contest) => contest.id == _selectedContest?.id)
             .firstOrNull;
-        if (selected != null) _selectedContest = selected;
+        _selectedContest = selected;
+        if (contests.isEmpty) {
+          return const Text('参加できるコンテストがありません');
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DropdownButtonFormField<Contest?>(
+            DropdownButtonFormField<Contest>(
               key: ValueKey(selected),
               initialValue: selected,
               decoration: const InputDecoration(
-                labelText: 'コンテストに投稿するか選択',
+                labelText: '参加するコンテスト',
                 border: OutlineInputBorder(),
               ),
-              items: <DropdownMenuItem<Contest?>>[
-                const DropdownMenuItem<Contest?>(
-                  value: null,
-                  child: Text('通常投稿'),
-                ),
+              items: <DropdownMenuItem<Contest>>[
                 ...contests.map(
-                  (contest) => DropdownMenuItem<Contest?>(
+                  (contest) => DropdownMenuItem<Contest>(
                     value: contest,
                     child: Text(contest.title, overflow: TextOverflow.ellipsis),
                   ),
@@ -917,6 +947,12 @@ class _PostAddDialogState extends State<PostAddDialog>
                                       );
                                       final navigator = Navigator.of(context);
 
+                                      if (_participateInContest &&
+                                          _selectedContest == null) {
+                                        _showError('参加するコンテストを選択してください');
+                                        return;
+                                      }
+
                                       if (_selectedImages.length > _maxImages) {
                                         _showError('画像は最大$_maxImages枚までです');
                                         return;
@@ -996,7 +1032,9 @@ class _PostAddDialogState extends State<PostAddDialog>
                                           .createPost(
                                             post,
                                             _selectedImages,
-                                            contestId: _selectedContest?.id,
+                                            contestId: _participateInContest
+                                                ? _selectedContest?.id
+                                                : null,
                                           );
 
                                       if (!mounted) {
