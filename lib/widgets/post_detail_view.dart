@@ -805,7 +805,7 @@ class _PostDetailViewState extends State<PostDetailView> {
               if (widget.post.contestId != null)
                 Chip(
                   avatar: const Icon(Icons.emoji_events_outlined, size: 16),
-                  label: Text('コンテスト参加中・${widget.post.voteCount}票'),
+                  label: Text('コンテスト応募・${widget.post.voteCount}票'),
                   visualDensity: VisualDensity.compact,
                 ),
             ],

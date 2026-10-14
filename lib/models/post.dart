@@ -40,7 +40,7 @@ class Post {
   /// comments サブコレクションを数えずに済むよう保持する。欠損時は 0。
   final int commentCount;
 
-  /// コンテスト参加投稿の場合のみ設定される。通常投稿は null。
+  /// コンテスト応募投稿の場合のみ設定される。通常投稿は null。
   final String? contestId;
 
   /// コンテスト終了後も投稿者を匿名のままにするか。

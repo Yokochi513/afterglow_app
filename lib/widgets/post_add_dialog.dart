@@ -44,7 +44,7 @@ class PostAddDialog extends StatefulWidget {
 class _PostAddDialogState extends State<PostAddDialog>
     with WidgetsBindingObserver {
   /// 投稿画像の枚数上限（PS_01 / NFR_02）。
-  static const int _maxImages = 10;
+  int get _maxImages => _selectedContest?.maxImages ?? 10;
 
   /// 入力欄のために確保する高さ。ダイアログの利用可能な高さからこれを
   /// 差し引いた分だけを画像プレビューに割り当てる（キーボード表示時に
@@ -80,8 +80,10 @@ class _PostAddDialogState extends State<PostAddDialog>
   final List<String> _tags = [];
   int _currentImageIndex = 0;
   bool _isPosting = false;
+  bool _participateInContest = false;
   Contest? _selectedContest;
-  bool _stayAnonymous = false;
+  late final Stream<List<Contest>> _entryOpenContests = contestService
+      .getEntryOpenContests();
 
   /// 現在フォーカスされている入力欄の context。
   /// キーボード表示によるビューポート変化時のスクロール補正に使う。
@@ -529,12 +531,7 @@ class _PostAddDialogState extends State<PostAddDialog>
           child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: false,
-            // ReorderableListView は移動先を「取り除く前」の位置で渡すため、
-            // 後ろ方向への移動は 1 つ手前に補正して最終的な位置に直す。
-            onReorder: (oldIndex, newIndex) => reorderImage(
-              oldIndex,
-              newIndex > oldIndex ? newIndex - 1 : newIndex,
-            ),
+            onReorderItem: reorderImage,
             itemCount: _selectedImages.length,
             itemBuilder: (context, index) {
               final isCurrent = index == _currentImageIndex;
@@ -631,31 +628,58 @@ class _PostAddDialogState extends State<PostAddDialog>
   }
 
   Widget _buildContestSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('コンテストに応募する'),
+          value: _participateInContest,
+          onChanged: _isPosting
+              ? null
+              : (value) => setState(() {
+                  _participateInContest = value;
+                  if (!value) _selectedContest = null;
+                }),
+        ),
+        if (_participateInContest) _buildContestList(),
+      ],
+    );
+  }
+
+  Widget _buildContestList() {
     return StreamBuilder<List<Contest>>(
-      stream: contestService.getEntryOpenContests(),
+      stream: _entryOpenContests,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          _selectedContest = null;
+          return const Text('コンテスト一覧を取得できませんでした');
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
         final contests = snapshot.data ?? const <Contest>[];
-        final selected =
-            contests.any((contest) => contest.id == _selectedContest?.id)
-            ? _selectedContest
-            : null;
+        final selected = contests
+            .where((contest) => contest.id == _selectedContest?.id)
+            .firstOrNull;
+        _selectedContest = selected;
+        if (contests.isEmpty) {
+          return const Text('募集中のコンテストがありません');
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DropdownButtonFormField<Contest?>(
-              value: selected,
+            DropdownButtonFormField<Contest>(
+              key: ValueKey(selected),
+              initialValue: selected,
               decoration: const InputDecoration(
-                labelText: 'コンテストへエントリー',
+                labelText: '応募するコンテスト',
                 border: OutlineInputBorder(),
               ),
-              items: <DropdownMenuItem<Contest?>>[
-                const DropdownMenuItem<Contest?>(
-                  value: null,
-                  child: Text('通常投稿'),
-                ),
+              items: <DropdownMenuItem<Contest>>[
                 ...contests.map(
-                  (contest) => DropdownMenuItem<Contest?>(
+                  (contest) => DropdownMenuItem<Contest>(
                     value: contest,
                     child: Text(contest.title, overflow: TextOverflow.ellipsis),
                   ),
@@ -665,21 +689,12 @@ class _PostAddDialogState extends State<PostAddDialog>
                   ? null
                   : (contest) => setState(() {
                       _selectedContest = contest;
-                      if (contest == null) {
-                        _stayAnonymous = false;
-                      }
                     }),
             ),
             if (selected != null)
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _stayAnonymous,
-                onChanged: _isPosting
-                    ? null
-                    : (value) =>
-                          setState(() => _stayAnonymous = value ?? false),
-                title: const Text('匿名のままにする'),
-                controlAffinity: ListTileControlAffinity.leading,
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('コンテスト終了後に投稿者名が公開されます'),
               ),
           ],
         );
@@ -930,6 +945,22 @@ class _PostAddDialogState extends State<PostAddDialog>
                                         context,
                                       );
                                       final navigator = Navigator.of(context);
+                                      // 一覧更新で選択が消えても、送信途中に通常投稿へ変えない。
+                                      final selectedContest =
+                                          _participateInContest
+                                          ? _selectedContest
+                                          : null;
+
+                                      if (_participateInContest &&
+                                          selectedContest == null) {
+                                        _showError('応募するコンテストを選択してください');
+                                        return;
+                                      }
+
+                                      if (_selectedImages.length > _maxImages) {
+                                        _showError('画像は最大$_maxImages枚までです');
+                                        return;
+                                      }
 
                                       // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
                                       final sizeError = imageService
@@ -959,6 +990,25 @@ class _PostAddDialogState extends State<PostAddDialog>
                                         _isPosting = true;
                                       });
 
+                                      try {
+                                        if (selectedContest != null &&
+                                            await postService.hasContestEntry(
+                                              selectedContest.id,
+                                              userId,
+                                            )) {
+                                          if (!mounted) return;
+                                          setState(() => _isPosting = false);
+                                          _showError('コンテストへの応募は1人1投稿までです');
+                                          return;
+                                        }
+                                      } catch (_) {
+                                        if (!mounted) return;
+                                        setState(() => _isPosting = false);
+                                        _showError('応募状況を確認できませんでした');
+                                        return;
+                                      }
+                                      if (!mounted) return;
+
                                       final locationName = _locationController
                                           .text
                                           .trim();
@@ -986,8 +1036,7 @@ class _PostAddDialogState extends State<PostAddDialog>
                                           .createPost(
                                             post,
                                             _selectedImages,
-                                            contestId: _selectedContest?.id,
-                                            stayAnonymous: _stayAnonymous,
+                                            contestId: selectedContest?.id,
                                           );
 
                                       if (!mounted) {

@@ -92,6 +92,18 @@ void main() {
     test(
       'createPost stores contest post author in private subdocument',
       () async {
+        await firestore.doc('contests/contest-1').set({
+          'entryDeadline': Timestamp.fromDate(
+            DateTime.now().add(const Duration(days: 1)),
+          ),
+          'votingDeadline': Timestamp.fromDate(
+            DateTime.now().add(const Duration(days: 2)),
+          ),
+          'maxImages': 1,
+        });
+        final images = [
+          XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'entry.jpg'),
+        ];
         final post = Post(
           id: 'contest-post',
           userId: 'author',
@@ -104,7 +116,7 @@ void main() {
 
         final success = await service.createPost(
           post,
-          const [],
+          images,
           contestId: 'contest-1',
           stayAnonymous: true,
         );
@@ -119,7 +131,7 @@ void main() {
         expect(bodyData, isNotNull);
         expect(bodyData!['userId'], '');
         expect(bodyData['contestId'], 'contest-1');
-        expect(bodyData['stayAnonymous'], isTrue);
+        expect(bodyData['stayAnonymous'], isFalse);
         expect(bodyData['voteCount'], 0);
 
         final author = await firestore
@@ -130,8 +142,75 @@ void main() {
             .get();
         expect(author.data()?['userId'], 'author');
         expect(await service.getAuthorId(post.id), 'author');
+        expect(
+          (await firestore.doc('contests/contest-1/entries/author').get())
+              .data()?['postId'],
+          post.id,
+        );
+        final duplicate = Post(
+          id: 'second-post',
+          userId: 'author',
+          caption: '',
+          imageUrls: const [],
+          latitude: 35,
+          longitude: 139,
+          createdAt: DateTime.now(),
+        );
+        expect(
+          await service.createPost(duplicate, images, contestId: 'contest-1'),
+          isFalse,
+        );
+        expect(
+          (await firestore.doc('posts/second-post').get()).exists,
+          isFalse,
+        );
+        await firestore.doc('posts/${post.id}').delete();
+        expect(
+          await service.createPost(duplicate, images, contestId: 'contest-1'),
+          isTrue,
+        );
       },
     );
+
+    test('コンテストの写真枚数上限と締切を検証する', () async {
+      final contest = firestore.doc('contests/limited');
+      await contest.set({
+        'entryDeadline': Timestamp.fromDate(
+          DateTime.now().add(const Duration(days: 1)),
+        ),
+        'maxImages': 1,
+      });
+      final post = Post(
+        id: 'limited-post',
+        userId: 'author',
+        caption: '',
+        imageUrls: const [],
+        latitude: 35,
+        longitude: 139,
+        createdAt: DateTime.now(),
+      );
+      final image = XFile.fromData(Uint8List.fromList([1]), name: 'entry.jpg');
+      expect(await service.createPost(post, [], contestId: 'limited'), isFalse);
+      expect(
+        await service.createPost(post, [image, image], contestId: 'limited'),
+        isFalse,
+      );
+      await contest.update({'maxImages': 2});
+      expect(
+        await service.createPost(post, [image, image], contestId: 'limited'),
+        isTrue,
+      );
+      await firestore.doc('posts/limited-post').delete();
+      await contest.update({
+        'entryDeadline': Timestamp.fromDate(
+          DateTime.now().subtract(const Duration(seconds: 1)),
+        ),
+      });
+      expect(
+        await service.createPost(post, [image], contestId: 'limited'),
+        isFalse,
+      );
+    });
 
     test('createPost uploads multiple images with distinct URLs', () async {
       final tempDir = await Directory.systemTemp.createTemp(

@@ -13,6 +13,7 @@ class ContestService {
 
   static const String contestsCollection = 'contests';
   static const String votesCollection = 'votes';
+  static const String entriesCollection = 'entries';
   static const String postsCollection = PostService.postsCollection;
 
   CollectionReference<Map<String, dynamic>> get _contestsRef =>
@@ -79,6 +80,7 @@ class ContestService {
       await _contestsRef.doc(contest.id).update({
         'title': contest.title,
         'description': contest.description,
+        'maxImages': contest.maxImages,
         'entryDeadline': Timestamp.fromDate(contest.entryDeadline),
         'votingDeadline': Timestamp.fromDate(contest.votingDeadline),
         'updatedAt': Timestamp.fromDate(DateTime.now()),

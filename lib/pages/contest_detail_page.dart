@@ -56,6 +56,12 @@ class ContestDetailPage extends StatelessWidget {
                         builder: (_) => ContestEditDialog(contest: contest),
                       ),
                     ),
+                  if (canManage)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'コンテストを削除',
+                      onPressed: () => _deleteContest(context, contestService),
+                    ),
                 ],
               ),
               body: _ContestBody(
@@ -68,6 +74,39 @@ class ContestDetailPage extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _deleteContest(
+    BuildContext context,
+    ContestService service,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('コンテストを削除'),
+        content: const Text('コンテストを削除しますか？応募投稿と写真は通常投稿として残り、投稿者名が公開されます。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('削除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final succeeded = await service.deleteContest(contestId);
+    if (!context.mounted) return;
+    if (succeeded) {
+      Navigator.pop(context);
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('コンテストの削除に失敗しました')));
+    }
   }
 
   Future<bool> _canManageContest(
@@ -103,6 +142,7 @@ class _ContestBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         Text(contest.title, style: Theme.of(context).textTheme.headlineSmall),
+        Text('応募は1人1投稿まで・写真は最大${contest.maxImages}枚'),
         const SizedBox(height: 8),
         Chip(
           avatar: const Icon(Icons.flag_outlined, size: 16),
@@ -117,7 +157,7 @@ class _ContestBody extends StatelessWidget {
         _InfoRow(
           icon: Icons.login_outlined,
           text:
-              'エントリー締切: ${EventScheduleText.formatDateTime(contest.entryDeadline)}',
+              '応募締切: ${EventScheduleText.formatDateTime(contest.entryDeadline)}',
         ),
         const SizedBox(height: 8),
         _InfoRow(
@@ -126,7 +166,7 @@ class _ContestBody extends StatelessWidget {
               '投票締切: ${EventScheduleText.formatDateTime(contest.votingDeadline)}',
         ),
         const SizedBox(height: 24),
-        Text('エントリー', style: Theme.of(context).textTheme.titleMedium),
+        Text('応募作品', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         _EntryList(
           contest: contest,
@@ -163,7 +203,7 @@ class _EntryList extends StatelessWidget {
 
         final entries = snapshot.data ?? const <Post>[];
         if (entries.isEmpty) {
-          return const Text('まだエントリーがありません');
+          return const Text('まだ応募作品がありません');
         }
 
         return ListView.separated(
@@ -312,7 +352,7 @@ class _InfoRow extends StatelessWidget {
 String _phaseLabel(ContestPhase phase) {
   switch (phase) {
     case ContestPhase.entry:
-      return 'エントリー受付中';
+      return '応募受付中';
     case ContestPhase.voting:
       return '投票受付中';
     case ContestPhase.ended:

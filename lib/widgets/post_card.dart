@@ -166,7 +166,7 @@ class _PostCardState extends State<PostCard> {
   Widget _buildContestBadge(Post post) {
     return Chip(
       avatar: const Icon(Icons.emoji_events_outlined, size: 16),
-      label: Text('コンテスト参加中・${post.voteCount}票'),
+      label: Text('コンテスト応募・${post.voteCount}票'),
       labelStyle: Theme.of(context).textTheme.labelSmall,
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
