@@ -633,8 +633,7 @@ class _PostAddDialogState extends State<PostAddDialog>
       children: [
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('コンテストに参加する'),
-          subtitle: _participateInContest ? null : const Text('通常投稿'),
+          title: const Text('コンテストに応募する'),
           value: _participateInContest,
           onChanged: _isPosting
               ? null
@@ -665,7 +664,7 @@ class _PostAddDialogState extends State<PostAddDialog>
             .firstOrNull;
         _selectedContest = selected;
         if (contests.isEmpty) {
-          return const Text('参加できるコンテストがありません');
+          return const Text('募集中のコンテストがありません');
         }
 
         return Column(
@@ -675,7 +674,7 @@ class _PostAddDialogState extends State<PostAddDialog>
               key: ValueKey(selected),
               initialValue: selected,
               decoration: const InputDecoration(
-                labelText: '参加するコンテスト',
+                labelText: '応募するコンテスト',
                 border: OutlineInputBorder(),
               ),
               items: <DropdownMenuItem<Contest>>[
