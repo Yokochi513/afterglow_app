@@ -56,6 +56,9 @@ jobs:
       - name: Install dependencies
         run: npm --prefix test/rules ci
 
+      - name: Install functions dependencies
+        run: npm --prefix functions ci
+
       - name: Run rules tests
         run: npm --prefix test/rules test
 

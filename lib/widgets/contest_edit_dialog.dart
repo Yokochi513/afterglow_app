@@ -38,6 +38,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
       _entryDeadline.add(const Duration(days: 7));
 
   bool _isSaving = false;
+  late int _maxImages = widget.contest?.maxImages ?? 1;
 
   bool get _isEditing => widget.contest != null;
 
@@ -138,6 +139,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
       votingDeadline: _votingDeadline,
       createdAt: widget.contest?.createdAt ?? now,
       updatedAt: now,
+      maxImages: _maxImages,
     );
 
     final succeeded = _isEditing
@@ -185,6 +187,21 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
                 value: EventScheduleText.formatDateTime(_entryDeadline),
                 onPressed: _isSaving ? null : _editEntryDeadline,
               ),
+              DropdownButtonFormField<int>(
+                initialValue: _maxImages,
+                decoration: const InputDecoration(labelText: '1投稿の写真枚数上限'),
+                items: List.generate(
+                  10,
+                  (index) => DropdownMenuItem(
+                    value: index + 1,
+                    child: Text('${index + 1}枚'),
+                  ),
+                ),
+                onChanged: _isSaving
+                    ? null
+                    : (value) => setState(() => _maxImages = value!),
+              ),
+              const Text('参加は1人1投稿までです'),
               _buildDateTimeRow(
                 label: '投票締切',
                 value: EventScheduleText.formatDateTime(_votingDeadline),

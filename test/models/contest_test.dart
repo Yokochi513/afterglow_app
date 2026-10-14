@@ -28,11 +28,13 @@ void main() {
       expect(contest.votingDeadline, votingDeadline);
       expect(contest.createdAt, createdAt);
       expect(contest.updatedAt, updatedAt);
+      expect(contest.maxImages, 1);
 
       final map = contest.toMap();
       expect(map['creatorId'], contest.creatorId);
       expect(map['title'], contest.title);
       expect(map['description'], contest.description);
+      expect(map['maxImages'], 1);
       expect((map['entryDeadline'] as Timestamp).toDate(), entryDeadline);
       expect((map['votingDeadline'] as Timestamp).toDate(), votingDeadline);
       expect((map['createdAt'] as Timestamp).toDate(), createdAt);

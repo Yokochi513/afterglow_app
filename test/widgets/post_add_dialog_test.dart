@@ -197,7 +197,7 @@ void main() {
       await press(tester, 'usePhotoLocation');
       tester
           .widget<ReorderableListView>(find.byType(ReorderableListView))
-          .onReorder!(0, 2);
+          .onReorderItem!(0, 1);
       await tester.pumpAndSettle();
       expect(find.textContaining('撮影場所が変わりました（1枚目'), findsOneWidget);
       final submit = find.widgetWithText(ElevatedButton, '投稿する');
@@ -420,11 +420,11 @@ void main() {
       await pumpWithImages(tester);
 
       // 先頭（表示中）の画像を末尾へ移動する
-      // （onReorder の移動先は「取り除く前」の位置なので末尾は 3）
+      // 移動先は取り除いた後のインデックスなので末尾は 2。
       final list = tester.widget<ReorderableListView>(
         find.byType(ReorderableListView),
       );
-      list.onReorder!(0, 3);
+      list.onReorderItem!(0, 2);
       await tester.pumpAndSettle();
 
       // サムネイルの並びが B, C, A になっていること
@@ -482,7 +482,7 @@ void main() {
       // 先頭の画像 A を末尾へ移動（A は表示中のまま）
       tester
           .widget<ReorderableListView>(find.byType(ReorderableListView))
-          .onReorder!(0, 3);
+          .onReorderItem!(0, 2);
       await tester.pumpAndSettle();
 
       // 表示中の画像（末尾の A）を削除する

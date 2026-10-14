@@ -44,7 +44,7 @@ class PostAddDialog extends StatefulWidget {
 class _PostAddDialogState extends State<PostAddDialog>
     with WidgetsBindingObserver {
   /// 投稿画像の枚数上限（PS_01 / NFR_02）。
-  static const int _maxImages = 10;
+  int get _maxImages => _selectedContest?.maxImages ?? 10;
 
   /// 入力欄のために確保する高さ。ダイアログの利用可能な高さからこれを
   /// 差し引いた分だけを画像プレビューに割り当てる（キーボード表示時に
@@ -81,7 +81,6 @@ class _PostAddDialogState extends State<PostAddDialog>
   int _currentImageIndex = 0;
   bool _isPosting = false;
   Contest? _selectedContest;
-  bool _stayAnonymous = false;
 
   /// 現在フォーカスされている入力欄の context。
   /// キーボード表示によるビューポート変化時のスクロール補正に使う。
@@ -529,12 +528,7 @@ class _PostAddDialogState extends State<PostAddDialog>
           child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: false,
-            // ReorderableListView は移動先を「取り除く前」の位置で渡すため、
-            // 後ろ方向への移動は 1 つ手前に補正して最終的な位置に直す。
-            onReorder: (oldIndex, newIndex) => reorderImage(
-              oldIndex,
-              newIndex > oldIndex ? newIndex - 1 : newIndex,
-            ),
+            onReorderItem: reorderImage,
             itemCount: _selectedImages.length,
             itemBuilder: (context, index) {
               final isCurrent = index == _currentImageIndex;
@@ -635,18 +629,19 @@ class _PostAddDialogState extends State<PostAddDialog>
       stream: contestService.getEntryOpenContests(),
       builder: (context, snapshot) {
         final contests = snapshot.data ?? const <Contest>[];
-        final selected =
-            contests.any((contest) => contest.id == _selectedContest?.id)
-            ? _selectedContest
-            : null;
+        final selected = contests
+            .where((contest) => contest.id == _selectedContest?.id)
+            .firstOrNull;
+        if (selected != null) _selectedContest = selected;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             DropdownButtonFormField<Contest?>(
-              value: selected,
+              key: ValueKey(selected),
+              initialValue: selected,
               decoration: const InputDecoration(
-                labelText: 'コンテストへエントリー',
+                labelText: 'コンテストに投稿するか選択',
                 border: OutlineInputBorder(),
               ),
               items: <DropdownMenuItem<Contest?>>[
@@ -665,21 +660,12 @@ class _PostAddDialogState extends State<PostAddDialog>
                   ? null
                   : (contest) => setState(() {
                       _selectedContest = contest;
-                      if (contest == null) {
-                        _stayAnonymous = false;
-                      }
                     }),
             ),
             if (selected != null)
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _stayAnonymous,
-                onChanged: _isPosting
-                    ? null
-                    : (value) =>
-                          setState(() => _stayAnonymous = value ?? false),
-                title: const Text('匿名のままにする'),
-                controlAffinity: ListTileControlAffinity.leading,
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('コンテスト終了後に投稿者名が公開されます'),
               ),
           ],
         );
@@ -931,6 +917,11 @@ class _PostAddDialogState extends State<PostAddDialog>
                                       );
                                       final navigator = Navigator.of(context);
 
+                                      if (_selectedImages.length > _maxImages) {
+                                        _showError('画像は最大$_maxImages枚までです');
+                                        return;
+                                      }
+
                                       // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
                                       final sizeError = imageService
                                           .validateSizes(_previewImageBytes);
@@ -958,6 +949,25 @@ class _PostAddDialogState extends State<PostAddDialog>
                                       setState(() {
                                         _isPosting = true;
                                       });
+
+                                      try {
+                                        if (_selectedContest != null &&
+                                            await postService.hasContestEntry(
+                                              _selectedContest!.id,
+                                              userId,
+                                            )) {
+                                          if (!mounted) return;
+                                          setState(() => _isPosting = false);
+                                          _showError('コンテストへの参加は1人1投稿までです');
+                                          return;
+                                        }
+                                      } catch (_) {
+                                        if (!mounted) return;
+                                        setState(() => _isPosting = false);
+                                        _showError('参加状況を確認できませんでした');
+                                        return;
+                                      }
+                                      if (!mounted) return;
 
                                       final locationName = _locationController
                                           .text
@@ -987,7 +997,6 @@ class _PostAddDialogState extends State<PostAddDialog>
                                             post,
                                             _selectedImages,
                                             contestId: _selectedContest?.id,
-                                            stayAnonymous: _stayAnonymous,
                                           );
 
                                       if (!mounted) {
