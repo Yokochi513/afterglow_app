@@ -8,6 +8,7 @@ import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/post_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/contest_entry_badge.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -803,10 +804,10 @@ class _PostDetailViewState extends State<PostDetailView> {
             children: [
               _buildAuthorHeader(),
               if (widget.post.contestId != null)
-                Chip(
-                  avatar: const Icon(Icons.emoji_events_outlined, size: 16),
-                  label: Text('コンテスト応募・${widget.post.voteCount}票'),
-                  visualDensity: VisualDensity.compact,
+                ContestEntryBadge(
+                  contestId: widget.post.contestId!,
+                  voteCount: widget.post.voteCount,
+                  contestService: _contestService,
                 ),
             ],
           ),
