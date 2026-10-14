@@ -945,10 +945,15 @@ class _PostAddDialogState extends State<PostAddDialog>
                                         context,
                                       );
                                       final navigator = Navigator.of(context);
+                                      // 一覧更新で選択が消えても、送信途中に通常投稿へ変えない。
+                                      final selectedContest =
+                                          _participateInContest
+                                          ? _selectedContest
+                                          : null;
 
                                       if (_participateInContest &&
-                                          _selectedContest == null) {
-                                        _showError('参加するコンテストを選択してください');
+                                          selectedContest == null) {
+                                        _showError('応募するコンテストを選択してください');
                                         return;
                                       }
 
@@ -986,20 +991,20 @@ class _PostAddDialogState extends State<PostAddDialog>
                                       });
 
                                       try {
-                                        if (_selectedContest != null &&
+                                        if (selectedContest != null &&
                                             await postService.hasContestEntry(
-                                              _selectedContest!.id,
+                                              selectedContest.id,
                                               userId,
                                             )) {
                                           if (!mounted) return;
                                           setState(() => _isPosting = false);
-                                          _showError('コンテストへの参加は1人1投稿までです');
+                                          _showError('コンテストへの応募は1人1投稿までです');
                                           return;
                                         }
                                       } catch (_) {
                                         if (!mounted) return;
                                         setState(() => _isPosting = false);
-                                        _showError('参加状況を確認できませんでした');
+                                        _showError('応募状況を確認できませんでした');
                                         return;
                                       }
                                       if (!mounted) return;
@@ -1031,9 +1036,7 @@ class _PostAddDialogState extends State<PostAddDialog>
                                           .createPost(
                                             post,
                                             _selectedImages,
-                                            contestId: _participateInContest
-                                                ? _selectedContest?.id
-                                                : null,
+                                            contestId: selectedContest?.id,
                                           );
 
                                       if (!mounted) {

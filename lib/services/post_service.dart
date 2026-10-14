@@ -112,13 +112,13 @@ class PostService {
                   .collection(postsCollection)
                   .doc(entry.data()!['postId'] as String),
             );
-            if (previous.exists) throw StateError('参加は1人1投稿までです');
+            if (previous.exists) throw StateError('応募は1人1投稿までです');
           }
           final data = contestSnapshot.data();
           if (data == null) throw StateError('コンテストが見つかりません');
           final contest = Contest.fromSnapshot(contestId, data);
           if (!contest.isEntryOpen || imageUrls.length > contest.maxImages) {
-            throw StateError('エントリー条件を満たしていません');
+            throw StateError('応募条件を満たしていません');
           }
           transaction.set(postRef, postData);
           transaction.set(
@@ -145,7 +145,7 @@ class PostService {
     }
   }
 
-  /// 旧形式の投稿も確認し、既に参加している場合はアップロード前に止める。
+  /// 旧形式の投稿も確認し、既に応募している場合はアップロード前に止める。
   Future<bool> hasContestEntry(String contestId, String userId) async {
     final entry = await _firestore
         .collection(ContestService.contestsCollection)

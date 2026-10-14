@@ -104,7 +104,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
       return;
     }
     if (!picked.isAfter(_entryDeadline)) {
-      _showError('投票締切はエントリー締切より後にしてください');
+      _showError('投票締切は応募締切より後にしてください');
       return;
     }
     setState(() => _votingDeadline = picked);
@@ -117,7 +117,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
       return;
     }
     if (!_votingDeadline.isAfter(_entryDeadline)) {
-      _showError('投票締切はエントリー締切より後にしてください');
+      _showError('投票締切は応募締切より後にしてください');
       return;
     }
 
@@ -183,7 +183,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
               ),
               const SizedBox(height: 12),
               _buildDateTimeRow(
-                label: 'エントリー締切',
+                label: '応募締切',
                 value: EventScheduleText.formatDateTime(_entryDeadline),
                 onPressed: _isSaving ? null : _editEntryDeadline,
               ),
@@ -201,7 +201,7 @@ class _ContestEditDialogState extends State<ContestEditDialog> {
                     ? null
                     : (value) => setState(() => _maxImages = value!),
               ),
-              const Text('参加は1人1投稿までです'),
+              const Text('応募は1人1投稿までです'),
               _buildDateTimeRow(
                 label: '投票締切',
                 value: EventScheduleText.formatDateTime(_votingDeadline),

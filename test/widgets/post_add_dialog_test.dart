@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -89,6 +90,11 @@ class _RecordingPostService extends PostService {
 
   Post? submitted;
   String? submittedContestId;
+  Future<bool>? entryCheck;
+
+  @override
+  Future<bool> hasContestEntry(String contestId, String userId) =>
+      entryCheck ?? super.hasContestEntry(contestId, userId);
 
   @override
   Future<bool> createPost(
@@ -119,7 +125,7 @@ void main() {
   // ダイアログの中身がスクロール領域からあふれる状況を作る。
   const screenSize = Size(400, 700);
 
-  group('コンテスト参加のトグル', () {
+  group('コンテスト応募のトグル', () {
     late FakeFirebaseFirestore firestore;
     late _RecordingPostService service;
 
@@ -162,7 +168,7 @@ void main() {
     final selector = find.byWidgetPredicate(
       (widget) => widget is DropdownButtonFormField<Contest>,
     );
-    final toggle = find.widgetWithText(SwitchListTile, 'コンテストに参加する');
+    final toggle = find.widgetWithText(SwitchListTile, 'コンテストに応募する');
     final submit = find.widgetWithText(ElevatedButton, '投稿する');
 
     testWidgets('既定はトグルがオフで通常投稿になる', (tester) async {
@@ -174,7 +180,7 @@ void main() {
       expect(service.submittedContestId, isNull);
     });
 
-    testWidgets('オン後に一覧から選択して参加し、オフで選択を解除する', (tester) async {
+    testWidgets('オン後に一覧から選択して応募し、オフで選択を解除する', (tester) async {
       await pumpDialog(tester);
       await press(tester, toggle);
       expect(selector, findsOneWidget);
@@ -194,10 +200,10 @@ void main() {
       service.submitted = null;
       await press(tester, submit);
       expect(service.submitted, isNull);
-      expect(find.text('参加するコンテストを選択してください'), findsOneWidget);
+      expect(find.text('応募するコンテストを選択してください'), findsOneWidget);
     });
 
-    testWidgets('参加対象が削除されても通常投稿へ切り替わらない', (tester) async {
+    testWidgets('応募対象が削除されても通常投稿へ切り替わらない', (tester) async {
       await pumpDialog(tester);
       await press(tester, toggle);
       await press(tester, selector);
@@ -206,7 +212,25 @@ void main() {
       await tester.pumpAndSettle();
       await press(tester, submit);
       expect(service.submitted, isNull);
-      expect(find.text('参加するコンテストを選択してください'), findsOneWidget);
+      expect(find.text('応募するコンテストを選択してください'), findsOneWidget);
+    });
+
+    testWidgets('送信中に応募先が削除されても応募先IDを保持する', (tester) async {
+      await pumpDialog(tester);
+      await press(tester, toggle);
+      await press(tester, selector);
+      await press(tester, find.text('夕焼けコンテスト'));
+      final check = Completer<bool>();
+      service.entryCheck = check.future;
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+      await firestore.doc('contests/sunset').delete();
+      await tester.pump();
+      check.complete(false);
+      await tester.pumpAndSettle();
+      expect(service.submitted, isNotNull);
+      expect(service.submittedContestId, 'sunset');
     });
   });
 

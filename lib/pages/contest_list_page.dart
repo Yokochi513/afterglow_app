@@ -60,7 +60,7 @@ class _ContestTile extends StatelessWidget {
       leading: const Icon(Icons.emoji_events_outlined),
       title: Text(contest.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
-        '${_phaseLabel(contest.phase)} / エントリー締切 ${EventScheduleText.formatDateTime(contest.entryDeadline)}',
+        '${_phaseLabel(contest.phase)} / 応募締切 ${EventScheduleText.formatDateTime(contest.entryDeadline)}',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
@@ -77,7 +77,7 @@ class _ContestTile extends StatelessWidget {
 String _phaseLabel(ContestPhase phase) {
   switch (phase) {
     case ContestPhase.entry:
-      return 'エントリー受付中';
+      return '応募受付中';
     case ContestPhase.voting:
       return '投票受付中';
     case ContestPhase.ended:
