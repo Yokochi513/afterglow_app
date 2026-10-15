@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+## [1.6.0+7] - 2026-10-16
+
+### Added
+
+- コンテストの主催者と管理者が、コンテストを削除できるようになりました。応募されていた投稿は通常の投稿として残ります。
+- コンテストの作成・編集時に、1 投稿あたりの写真枚数の上限（1〜10 枚）を設定できるようになりました。
+
+### Changed
+
+- 投稿時の「コンテストに応募する」をオンにしたときだけ、応募先のコンテストを一覧から選ぶようにしました。
+- コンテストへの応募は 1 人 1 投稿までになりました。
+- コンテスト終了後は、すべての応募作品の投稿者名が公開されるようになりました。
+- コンテストの投稿に、開催中は「参加中」、投票締切後は「応募作品」と表示するようにしました。
+
 ## [1.5.0+6] - 2026-10-13
 
 ### Added
@@ -116,7 +130,8 @@
 
 - Firestore / Storage のセキュリティルールで承認済みユーザーのみを許可。
 
-[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Yokochi513/afterglow_app/compare/v1.6.0...HEAD
+[1.6.0+7]: https://github.com/Yokochi513/afterglow_app/compare/v1.5.0...v1.6.0
 [1.5.0+6]: https://github.com/Yokochi513/afterglow_app/compare/v1.4.0...v1.5.0
 [1.4.0+5]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.1...v1.4.0
 [1.3.1+4]: https://github.com/Yokochi513/afterglow_app/compare/v1.3.0...v1.3.1
