@@ -1,4 +1,6 @@
 import 'package:afterglow_app/models/post.dart';
+import 'package:afterglow_app/models/contest.dart';
+import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/image_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -30,7 +32,23 @@ class PostService {
     String? contestId,
     bool stayAnonymous = false,
   }) async {
+    final uploadedRefs = <Reference>[];
     try {
+      if (contestId != null) {
+        final snapshot = await _firestore
+            .collection(ContestService.contestsCollection)
+            .doc(contestId)
+            .get();
+        final data = snapshot.data();
+        if (data == null) return false;
+        final contest = Contest.fromSnapshot(contestId, data);
+        if (!contest.isEntryOpen ||
+            imageFiles.isEmpty ||
+            imageFiles.length > contest.maxImages) {
+          return false;
+        }
+        if (await hasContestEntry(contestId, post.userId)) return false;
+      }
       final imageUrls = await Future.wait(
         imageFiles.asMap().entries.map((entry) async {
           final index = entry.key;
@@ -51,6 +69,7 @@ class PostService {
               cacheControl: 'public, max-age=31536000, immutable',
             ),
           );
+          uploadedRefs.add(storageRef);
           return uploadTask.ref.getDownloadURL();
         }),
       );
@@ -72,24 +91,83 @@ class PostService {
         'createdAt': Timestamp.fromDate(post.createdAt),
         if (isContestPost) ...{
           'contestId': contestId,
-          'stayAnonymous': stayAnonymous,
+          // 旧クライアント互換の引数にかかわらず、終了後は必ず公開する。
+          'stayAnonymous': false,
           'voteCount': 0,
         },
       };
       if (isContestPost) {
-        final batch = _firestore.batch();
-        batch.set(postRef, postData);
-        batch.set(postRef.collection(privateCollection).doc(authorDocument), {
-          'userId': post.userId,
+        final contestRef = _firestore
+            .collection(ContestService.contestsCollection)
+            .doc(contestId);
+        final entryRef = contestRef
+            .collection(ContestService.entriesCollection)
+            .doc(post.userId);
+        await _firestore.runTransaction((transaction) async {
+          final contestSnapshot = await transaction.get(contestRef);
+          final entry = await transaction.get(entryRef);
+          if (entry.exists) {
+            final previous = await transaction.get(
+              _firestore
+                  .collection(postsCollection)
+                  .doc(entry.data()!['postId'] as String),
+            );
+            if (previous.exists) throw StateError('応募は1人1投稿までです');
+          }
+          final data = contestSnapshot.data();
+          if (data == null) throw StateError('コンテストが見つかりません');
+          final contest = Contest.fromSnapshot(contestId, data);
+          if (!contest.isEntryOpen || imageUrls.length > contest.maxImages) {
+            throw StateError('応募条件を満たしていません');
+          }
+          transaction.set(postRef, postData);
+          transaction.set(
+            postRef.collection(privateCollection).doc(authorDocument),
+            {'userId': post.userId},
+          );
+          transaction.set(entryRef, {'postId': post.id});
         });
-        await batch.commit();
       } else {
         await postRef.set(postData);
       }
       return true;
     } catch (_) {
+      await Future.wait(
+        uploadedRefs.map((ref) async {
+          try {
+            await ref.delete();
+          } catch (_) {
+            // 画像の掃除に失敗しても、投稿作成自体は失敗として返す。
+          }
+        }),
+      );
       return false;
     }
+  }
+
+  /// 旧形式の投稿も確認し、既に応募している場合はアップロード前に止める。
+  Future<bool> hasContestEntry(String contestId, String userId) async {
+    final entry = await _firestore
+        .collection(ContestService.contestsCollection)
+        .doc(contestId)
+        .collection(ContestService.entriesCollection)
+        .doc(userId)
+        .get();
+    if (entry.exists) {
+      final previous = await _firestore
+          .collection(postsCollection)
+          .doc(entry.data()!['postId'] as String)
+          .get();
+      if (previous.exists) return true;
+    }
+    final posts = await _firestore
+        .collection(postsCollection)
+        .where('contestId', isEqualTo: contestId)
+        .get();
+    for (final post in posts.docs) {
+      if (await getAuthorId(post.id) == userId) return true;
+    }
+    return false;
   }
 
   /// 投稿の説明文と画像一覧を更新する。写真の追加は行わず、削除のみを許可する。

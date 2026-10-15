@@ -12,6 +12,7 @@ class Contest {
     required this.votingDeadline,
     required this.createdAt,
     required this.updatedAt,
+    this.maxImages = 1,
   });
 
   final String id;
@@ -22,6 +23,7 @@ class Contest {
   final DateTime votingDeadline;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final int maxImages;
 
   /// フェーズ判定の集約点。Firestore ルールも同じ境界条件で判定する。
   ContestPhase phaseAt(DateTime now) {
@@ -55,6 +57,7 @@ class Contest {
           (document['votingDeadline'] as Timestamp?)?.toDate() ?? entryDeadline,
       createdAt: createdAt,
       updatedAt: (document['updatedAt'] as Timestamp?)?.toDate() ?? createdAt,
+      maxImages: document['maxImages'] ?? 1,
     );
   }
 
@@ -67,6 +70,8 @@ class Contest {
       'votingDeadline': Timestamp.fromDate(votingDeadline),
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'maxImages': maxImages,
+      'entryLimitVersion': 1,
     };
   }
 }

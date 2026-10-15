@@ -9,15 +9,16 @@ Dart 側のテストは `fake_cloud_firestore` を使っておりルールを一
 
 ## 実行
 
-Java（エミュレータの実行に必要）が要る。firebase CLI は devDependencies の
+Java 21以降（エミュレータの実行に必要）が要る。firebase CLI は devDependencies の
 `firebase-tools` を使うので、グローバルインストールは不要。
 
 ```bash
 npm --prefix test/rules ci      # 初回・依存更新時
+npm --prefix functions ci       # Cloud Functionsの統合テスト用
 npm --prefix test/rules test
 ```
 
-`firebase emulators:exec` がエミュレータを起動 → `node --test` を実行 → 停止まで行う。
+Functionsをビルドしてから、`firebase emulators:exec` がエミュレータを起動 → `node --test` を実行 → 停止まで行う。
 プロジェクト ID は `demo-afterglow`（`demo-` 始まりなので実プロジェクトには接続しない）。
 
 `main` への push とルール関連ファイルを含む PR では、
@@ -27,6 +28,7 @@ npm --prefix test/rules test
 
 - `helpers.mjs` — エミュレータ接続と、ルールを無効化して前提データを書く `seed()`
 - `posts.test.mjs` — `posts` とそのサブコレクション（comments / reactions）のルール
+- `../../functions/test/contest.test.cjs` — 匿名解除・旧投稿の参加履歴移行・コンテスト削除後の投稿復元。実際のAdmin SDKをエミュレータへ接続して検証する
 - `users.test.mjs` — `users` と、承認状態（承認済み / 未承認 / 未ログイン / 管理者）
   による読み書きの可否。通知・Functions 専用コレクションの遮断も含む
 

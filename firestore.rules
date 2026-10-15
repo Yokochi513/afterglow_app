@@ -38,6 +38,16 @@ service cloud.firestore {
       return /databases/$(database)/documents/contests/$(contestId);
     }
 
+    function contestEntryPath(contestId, uid) {
+      return /databases/$(database)/documents/contests/$(contestId)/entries/$(uid);
+    }
+
+    function validContestImages(data) {
+      return data.imageUrls is list
+        && data.imageUrls.size() >= 1
+        && data.imageUrls.size() <= get(contestPath(data.contestId)).data.get('maxImages', 1);
+    }
+
     function postPath(postId) {
       return /databases/$(database)/documents/posts/$(postId);
     }
@@ -137,6 +147,13 @@ service cloud.firestore {
             && request.resource.data.userId == ''
             && request.resource.data.voteCount == 0
             && isContestEntryOpen(request.resource.data.contestId)
+            && get(contestPath(request.resource.data.contestId)).data.get('entryLimitVersion', 0) == 1
+            && request.resource.data.get('stayAnonymous', false) == false
+            && validContestImages(request.resource.data)
+            && getAfter(postAuthorPath(postId)).data.userId == request.auth.uid
+            && getAfter(contestEntryPath(request.resource.data.contestId, request.auth.uid)).data.postId == postId
+            && (!exists(contestEntryPath(request.resource.data.contestId, request.auth.uid))
+              || !exists(postPath(get(contestEntryPath(request.resource.data.contestId, request.auth.uid)).data.postId)))
           )
         );
       // voteCount はクライアントから直接書き換えられない。投票の実体は
@@ -145,6 +162,13 @@ service cloud.firestore {
       // 実数を承認済みユーザー全員に見せる集計値のため、likeCount と違い
       // クライアントの直接更新を許すと得票数を不正に書き換えられてしまう。
       allow update: if isApproved()
+        && request.resource.data.get('contestId', null) == resource.data.get('contestId', null)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.get('stayAnonymous', false) == resource.data.get('stayAnonymous', false)
+        && request.resource.data.get('voteCount', 0) == resource.data.get('voteCount', 0)
+        && (!isContestPost(resource.data)
+          || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['imageUrls'])
+          || validContestImages(request.resource.data))
         && (resource.data.userId == request.auth.uid
           || isAdmin()
           || isLikeCountOnlyUpdate()
@@ -155,11 +179,14 @@ service cloud.firestore {
           || isContestAuthorEditing());
 
       // コンテスト投稿の実投稿者 UID。匿名期間中も本人と管理者だけが読める。
-      match /private/{document=**} {
+      match /private/{document} {
         allow read: if isAdmin()
           || (isSignedIn() && resource.data.userId == request.auth.uid);
         allow create: if isApproved()
-          && request.resource.data.userId == request.auth.uid;
+          && request.resource.data.userId == request.auth.uid
+          && document == 'author'
+          && getAfter(postPath(postId)).data.userId == ''
+          && getAfter(contestEntryPath(getAfter(postPath(postId)).data.contestId, request.auth.uid)).data.postId == postId;
         allow update, delete: if false;
       }
 
@@ -181,11 +208,38 @@ service cloud.firestore {
 
     // コンテスト。投票内容は本人と管理者だけが読める。
     match /contests/{contestId} {
+      function validImageLimit() {
+        let limit = request.resource.data.get('maxImages', 1);
+        return limit is int && limit >= 1 && limit <= 10;
+      }
       allow read: if isApproved();
       allow create: if isApproved()
+        && validImageLimit()
+        && request.resource.data.get('entryLimitVersion', 0) == 1
         && request.resource.data.creatorId == request.auth.uid;
-      allow update, delete: if isApproved()
+      allow update: if isApproved()
+        && validImageLimit()
+        && request.resource.data.get('entryLimitVersion', 0) == resource.data.get('entryLimitVersion', 0)
+        && request.resource.data.creatorId == resource.data.creatorId
         && (resource.data.creatorId == request.auth.uid || isAdmin());
+      allow delete: if isApproved()
+        && (resource.data.creatorId == request.auth.uid || isAdmin());
+
+      // 投稿者と投稿の対応は本人・管理者だけに公開する。
+      match /entries/{uid} {
+        allow read: if isApproved() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if isApproved()
+          && request.auth.uid == uid
+          && isContestEntryOpen(contestId)
+          && request.resource.data.keys().hasOnly(['postId'])
+          && request.resource.data.postId is string
+          && (!exists(contestEntryPath(contestId, uid))
+            || !exists(postPath(resource.data.postId)))
+          && !exists(postPath(request.resource.data.postId))
+          && getAfter(postPath(request.resource.data.postId)).data.contestId == contestId
+          && getAfter(postAuthorPath(request.resource.data.postId)).data.userId == uid;
+        allow delete: if false;
+      }
 
       match /votes/{userId} {
         allow read: if isAdmin()

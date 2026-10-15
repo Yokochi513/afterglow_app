@@ -3,7 +3,7 @@
   "description": "firestore.rules の回帰テスト（Firestore エミュレータ上で実行）",
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-afterglow --config ../../firebase.json \"node --test *.test.mjs\""
+    "test": "npm --prefix ../../functions run build && firebase emulators:exec --only firestore --project demo-afterglow --config ../../firebase.json \"node --test *.test.mjs ../../functions/test/*.test.cjs\""
   },
   "engines": {
     "node": ">=20"

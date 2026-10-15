@@ -9,6 +9,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { approved, createTestEnv, seed } from './helpers.mjs';
 
@@ -183,25 +184,36 @@ describe('posts のルール', () => {
         setDoc(doc(adminDb, 'contests/contest-1'), {
           creatorId: 'author',
           title: 'contest',
+          entryLimitVersion: 1,
           entryDeadline,
           votingDeadline,
         }),
       );
 
-      await assertSucceeds(
-        setDoc(doc(db, 'posts/contest-post'), {
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'posts/contest-post'), {
           userId: '',
           contestId: 'contest-1',
           stayAnonymous: false,
           voteCount: 0,
           caption: 'entry',
-        }),
-      );
-      await assertSucceeds(
-        setDoc(doc(db, 'posts/contest-post/private/author'), {
+          imageUrls: ['photo.jpg'],
+        });
+      batch.set(doc(db, 'posts/contest-post/private/author'), {
           userId: 'author',
-        }),
-      );
+        });
+      batch.set(doc(db, 'contests/contest-1/entries/author'), {postId: 'contest-post'});
+      await assertSucceeds(batch.commit());
+
+      const duplicate = writeBatch(db);
+      duplicate.set(doc(db, 'posts/duplicate'), {
+        userId: '', contestId: 'contest-1', voteCount: 0,
+        imageUrls: ['photo.jpg'], stayAnonymous: false,
+      });
+      duplicate.set(doc(db, 'posts/duplicate/private/author'), {userId: 'author'});
+      duplicate.set(doc(db, 'contests/contest-1/entries/author'), {postId: 'duplicate'});
+      await assertFails(duplicate.commit());
+      await assertFails(getDoc(doc(approved(testEnv, 'liker'), 'contests/contest-1/entries/author')));
     });
 
     it('エントリー締切後はコンテスト投稿を作成できない', async () => {
@@ -225,6 +237,65 @@ describe('posts のルール', () => {
           caption: 'late',
         }),
       );
+    });
+
+    it('写真枚数と匿名維持を検証し、削除後は再エントリーできる', async () => {
+      const db = approved(testEnv, 'author');
+      await seed(testEnv, (adminDb) => setDoc(doc(adminDb, 'contests/limited'), {
+        creatorId: 'author', title: 'limited', ...contestWindow(),
+        maxImages: 2, entryLimitVersion: 1,
+      }));
+      const submit = (id, imageUrls, stayAnonymous = false) => {
+        const batch = writeBatch(db);
+        batch.set(doc(db, `posts/${id}`), {
+          userId: '', contestId: 'limited', voteCount: 0, imageUrls, stayAnonymous,
+        });
+        batch.set(doc(db, `posts/${id}/private/author`), {userId: 'author'});
+        batch.set(doc(db, 'contests/limited/entries/author'), {postId: id});
+        return batch.commit();
+      };
+      await assertFails(submit('empty', []));
+      await assertFails(submit('over', ['1.jpg', '2.jpg', '3.jpg']));
+      await assertFails(submit('anonymous', ['1.jpg'], true));
+      await assertSucceeds(submit('valid', ['1.jpg', '2.jpg']));
+      await assertFails(updateDoc(doc(db, 'posts/valid'), {imageUrls: []}));
+      await assertFails(updateDoc(doc(db, 'posts/valid'), {contestId: null, userId: 'author'}));
+      await assertSucceeds(deleteDoc(doc(db, 'posts/valid')));
+      await assertSucceeds(submit('replacement', ['1.jpg']));
+    });
+
+    it('主催者と管理者だけが削除でき、写真上限は1〜10枚に限定する', async () => {
+      const authorDb = approved(testEnv, 'author');
+      const otherDb = approved(testEnv, 'liker');
+      const adminDb = approved(testEnv, 'admin');
+      const ref = doc(authorDb, 'contests/manage');
+      const contest = {creatorId: 'author', title: 'managed', ...contestWindow(), entryLimitVersion: 1};
+      for (const maxImages of [0, 11, 1.5, '2']) {
+        await assertFails(setDoc(ref, {...contest, maxImages}));
+      }
+      await assertSucceeds(setDoc(ref, {...contest, maxImages: 3}));
+      await assertFails(updateDoc(doc(otherDb, 'contests/manage'), {maxImages: 2}));
+      await assertSucceeds(updateDoc(ref, {maxImages: 5}));
+      await assertFails(updateDoc(ref, {maxImages: 0}));
+      await assertFails(deleteDoc(doc(otherDb, 'contests/manage')));
+      await assertSucceeds(deleteDoc(doc(adminDb, 'contests/manage')));
+      await assertSucceeds(setDoc(ref, contest));
+      await assertSucceeds(deleteDoc(ref));
+    });
+
+    it('旧コンテストは参加履歴の移行完了まで新規エントリーを許可しない', async () => {
+      const db = approved(testEnv, 'author');
+      await seed(testEnv, (adminDb) => setDoc(doc(adminDb, 'contests/legacy'), {
+        creatorId: 'author', ...contestWindow(),
+      }));
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'posts/legacy-new'), {
+        userId: '', contestId: 'legacy', voteCount: 0, imageUrls: ['1.jpg'],
+      });
+      batch.set(doc(db, 'posts/legacy-new/private/author'), {userId: 'author'});
+      batch.set(doc(db, 'contests/legacy/entries/author'), {postId: 'legacy-new'});
+      await assertFails(batch.commit());
+      await assertFails(updateDoc(doc(db, 'contests/legacy'), {entryLimitVersion: 1}));
     });
 
     it('匿名投稿の実投稿者は本人と管理者だけが読める', async () => {

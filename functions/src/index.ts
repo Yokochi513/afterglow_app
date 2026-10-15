@@ -167,6 +167,36 @@ export const revealContestAuthors = functions
   .pubsub.schedule("every 30 minutes")
   .timeZone("Asia/Tokyo")
   .onRun(async () => {
+    // 旧投稿を先に登録する。移行完了まではルールが新規参加を止める。
+    const existingContests = await db.collection(CONTESTS_COLLECTION).get();
+    for (const contest of existingContests.docs) {
+      if (contest.data().entryLimitVersion === 1) continue;
+      const entries = await db.collection(POSTS_COLLECTION)
+        .where("contestId", "==", contest.id).get();
+      let complete = true;
+      for (const post of entries.docs) {
+        const author = await post.ref.collection("private").doc("author").get();
+        const uid = post.data().userId || author.data()?.userId;
+        if (typeof uid !== "string" || uid.length === 0) {
+          functions.logger.warn(`投稿者を復元できません: ${post.id}`);
+          complete = false;
+          continue;
+        }
+        const entryRef = contest.ref.collection("entries").doc(uid);
+        await db.runTransaction(async (transaction) => {
+          const currentContest = await transaction.get(contest.ref);
+          const currentPost = await transaction.get(post.ref);
+          const entry = await transaction.get(entryRef);
+          if (!currentContest.exists || currentPost.data()?.contestId !== contest.id) return;
+          if (!entry.exists) transaction.set(entryRef, {postId: post.id});
+        });
+      }
+      if (!complete) continue;
+      await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(contest.ref);
+        if (current.exists) transaction.update(contest.ref, {entryLimitVersion: 1});
+      });
+    }
     const now = admin.firestore.Timestamp.now();
     const contests = await db
       .collection(CONTESTS_COLLECTION)
@@ -178,7 +208,6 @@ export const revealContestAuthors = functions
         .collection(POSTS_COLLECTION)
         .where("contestId", "==", contest.id)
         .where("userId", "==", "")
-        .where("stayAnonymous", "==", false)
         .get();
 
       let batch = db.batch();
@@ -191,7 +220,7 @@ export const revealContestAuthors = functions
           continue;
         }
 
-        batch.update(post.ref, {userId: authorId});
+        batch.update(post.ref, {userId: authorId, stayAnonymous: false});
         writes++;
 
         if (writes === 450) {
@@ -208,6 +237,41 @@ export const revealContestAuthors = functions
   });
 
 /**
+ * 削除されたコンテストの投稿は写真・コメントを保った通常投稿に戻す。
+ * 匿名の実投稿者復元と投票サブコレクションの削除は Admin SDK で行う。
+ */
+export const onContestDeleted = functions
+  .region(REGION)
+  .runWith({failurePolicy: true})
+  .firestore.document(`${CONTESTS_COLLECTION}/{contestId}`)
+  .onDelete(async (snapshot, context) => {
+    const posts = await db.collection(POSTS_COLLECTION)
+      .where("contestId", "==", context.params.contestId).get();
+    for (const post of posts.docs) {
+      await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(post.ref);
+        if (!current.exists ||
+          current.data()?.contestId !== context.params.contestId) return;
+        const author = await transaction.get(
+          post.ref.collection("private").doc("author"),
+        );
+        const authorId = current.data()?.userId || author.data()?.userId;
+        if (typeof authorId !== "string" || authorId.length === 0) {
+          throw new Error(`投稿者を復元できません: ${post.id}`);
+        }
+        transaction.update(post.ref, {
+          userId: authorId,
+          contestId: admin.firestore.FieldValue.delete(),
+          stayAnonymous: admin.firestore.FieldValue.delete(),
+          voteCount: admin.firestore.FieldValue.delete(),
+        });
+      });
+    }
+    await db.recursiveDelete(snapshot.ref.collection("votes"));
+    await db.recursiveDelete(snapshot.ref.collection("entries"));
+  });
+
+/**
  * コンテスト投票（contests/{contestId}/votes/{voterId}）の増減に合わせて
  * 対象投稿の voteCount を更新する。
  *
@@ -221,7 +285,7 @@ export const revealContestAuthors = functions
 export const onContestVoteChange = functions
   .region(REGION)
   .firestore.document(`${CONTESTS_COLLECTION}/{contestId}/votes/{voterId}`)
-  .onWrite(async (change) => {
+  .onWrite(async (change, context) => {
     const before = change.before.exists
       ? (change.before.data()?.postId as string | undefined)
       : undefined;
@@ -234,6 +298,11 @@ export const onContestVoteChange = functions
     }
 
     await db.runTransaction(async (transaction) => {
+      // 削除時の投票掃除で通常投稿の voteCount を再作成しない。
+      const contest = await transaction.get(
+        db.collection(CONTESTS_COLLECTION).doc(context.params.contestId),
+      );
+      if (!contest.exists) return;
       if (before) {
         transaction.update(db.collection(POSTS_COLLECTION).doc(before), {
           voteCount: admin.firestore.FieldValue.increment(-1),

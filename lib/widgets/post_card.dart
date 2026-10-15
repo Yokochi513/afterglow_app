@@ -1,8 +1,10 @@
 import 'package:afterglow_app/models/post.dart';
 import 'package:afterglow_app/services/auth_service.dart';
 import 'package:afterglow_app/services/comment_service.dart';
+import 'package:afterglow_app/services/contest_service.dart';
 import 'package:afterglow_app/services/reaction_service.dart';
 import 'package:afterglow_app/services/user_service.dart';
+import 'package:afterglow_app/widgets/contest_entry_badge.dart';
 import 'package:afterglow_app/widgets/reaction_bar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +23,7 @@ class PostCard extends StatefulWidget {
     this.authService,
     this.reactionService,
     this.commentService,
+    this.contestService,
   });
 
   final Post post;
@@ -31,6 +34,7 @@ class PostCard extends StatefulWidget {
   final AuthService? authService;
   final ReactionService? reactionService;
   final CommentService? commentService;
+  final ContestService? contestService;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -164,12 +168,10 @@ class _PostCardState extends State<PostCard> {
   }
 
   Widget _buildContestBadge(Post post) {
-    return Chip(
-      avatar: const Icon(Icons.emoji_events_outlined, size: 16),
-      label: Text('コンテスト参加中・${post.voteCount}票'),
-      labelStyle: Theme.of(context).textTheme.labelSmall,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return ContestEntryBadge(
+      contestId: post.contestId!,
+      voteCount: post.voteCount,
+      contestService: widget.contestService,
     );
   }
 
