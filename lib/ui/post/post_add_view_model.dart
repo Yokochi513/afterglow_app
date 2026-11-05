@@ -302,7 +302,7 @@ class PostAddViewModel extends ChangeNotifier {
       _notify('画像は最大$maxImages枚までです');
       return false;
     }
-    // 画像サイズ検証（1枚10MB・合計100MB）— NFR_02
+    // 元画像のサイズ検証（1枚30MB・合計100MB）— NFR_02 / Issue #99
     final sizeError = _imageService.validateSizes(_previewBytes);
     if (sizeError != null) {
       _notify(sizeError);
@@ -346,11 +346,20 @@ class PostAddViewModel extends ChangeNotifier {
       tags: List<String>.of(_tags),
     );
 
-    final success = await _postRepository.createPost(
-      post,
-      List<XFile>.of(_images),
-      contestId: selectedContest?.id,
-    );
+    final bool success;
+    try {
+      success = await _postRepository.createPost(
+        post,
+        List<XFile>.of(_images),
+        contestId: selectedContest?.id,
+      );
+    } on CompressedImageTooLargeException catch (error) {
+      // 圧縮後も上限以上の画像があり、アップロード前に中止した（Issue #99）
+      if (_disposed) return false;
+      _setPosting(false);
+      _notify(error.message);
+      return false;
+    }
     if (_disposed) return false;
 
     if (!success) {

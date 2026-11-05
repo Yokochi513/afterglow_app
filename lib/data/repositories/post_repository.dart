@@ -26,6 +26,11 @@ class PostRepository {
   /// フィードの 1 ページあたりの取得件数（§8.2 / NFR_02）。
   static const int feedPageSize = 20;
 
+  /// 投稿を作成する。画像は圧縮してから Storage にアップロードする。
+  ///
+  /// 作成できたら true、失敗したら false を返す（アップロード済み画像は削除する）。
+  /// 圧縮後も [ImageService.maxCompressedImageBytes] 以上の画像がある場合は、
+  /// 1 枚もアップロードせずに [CompressedImageTooLargeException] を投げる。
   Future<bool> createPost(
     Post post,
     List<XFile> imageFiles, {
@@ -49,16 +54,23 @@ class PostRepository {
         }
         if (await hasContestEntry(contestId, post.userId)) return false;
       }
+      // アップロード前に短辺2048px・品質85%へ圧縮する（§8.1 / NFR_02）。
+      // 1 枚でも圧縮後に上限以上なら Storage ルールで拒否されるため、
+      // 1 枚もアップロードせずに中止する（Issue #99）。
+      final compressedImages = await Future.wait(
+        imageFiles.map(_imageService.compressImage),
+      );
+      if (!compressedImages.every(_imageService.isCompressedSizeAllowed)) {
+        throw const CompressedImageTooLargeException();
+      }
+
       final imageUrls = await Future.wait(
-        imageFiles.asMap().entries.map((entry) async {
+        compressedImages.asMap().entries.map((entry) async {
           final index = entry.key;
-          final imageFile = entry.value;
+          final compressedBytes = entry.value;
           final storageRef = _storage.ref().child(
             'posts/${post.userId}/${post.id}_$index.jpg',
           );
-
-          // アップロード前に短辺2048px・品質85%へ圧縮する（§8.1 / NFR_02）
-          final compressedBytes = await _imageService.compressImage(imageFile);
 
           final uploadTask = await storageRef.putData(
             compressedBytes,
@@ -131,6 +143,9 @@ class PostRepository {
         await postRef.set(postData);
       }
       return true;
+    } on CompressedImageTooLargeException {
+      // アップロード前に中止しているため掃除は不要。理由を呼び出し元へ伝える。
+      rethrow;
     } catch (_) {
       await Future.wait(
         uploadedRefs.map((ref) async {

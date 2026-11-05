@@ -55,17 +55,40 @@ void main() {
       expect(service.validateSizes([bytes, bytes]), isNull);
     });
 
-    test('1枚が10MBを超えるとエラーを返す', () {
+    test('元画像は1枚30MBちょうどまで許容する', () {
+      expect(ImageService.maxImageBytes, 30 * 1024 * 1024);
+      final atLimit = Uint8List(ImageService.maxImageBytes);
+      expect(service.validateSizes([atLimit]), isNull);
+    });
+
+    test('1枚が30MBを超えるとエラーを返す', () {
       final tooLarge = Uint8List(ImageService.maxImageBytes + 1);
       final error = service.validateSizes([tooLarge]);
       expect(error, isNotNull);
-      expect(error, contains('10MB'));
+      expect(error, contains('30MB'));
+    });
+
+    test('圧縮後は10MB未満なら許容し、10MB以上なら拒否する', () {
+      // storage.rules の `request.resource.size < 10 * 1024 * 1024` と揃える
+      expect(ImageService.maxCompressedImageBytes, 10 * 1024 * 1024);
+      expect(
+        service.isCompressedSizeAllowed(
+          Uint8List(ImageService.maxCompressedImageBytes - 1),
+        ),
+        isTrue,
+      );
+      expect(
+        service.isCompressedSizeAllowed(
+          Uint8List(ImageService.maxCompressedImageBytes),
+        ),
+        isFalse,
+      );
     });
 
     test('合計が100MBを超えるとエラーを返す', () {
-      // 各9MBの画像を12枚（合計108MB）で合計上限を超える
-      final nineMb = Uint8List(9 * 1024 * 1024);
-      final images = List<Uint8List>.filled(12, nineMb);
+      // 各1枚上限内（25MB）の画像を5枚（合計125MB）で合計上限を超える
+      final twentyFiveMb = Uint8List(25 * 1024 * 1024);
+      final images = List<Uint8List>.filled(5, twentyFiveMb);
       final error = service.validateSizes(images);
       expect(error, isNotNull);
       expect(error, contains('100MB'));
