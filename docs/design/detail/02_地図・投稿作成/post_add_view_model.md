@@ -245,6 +245,7 @@ flowchart TD
   J -- false --> K
   I -- no --> K[Post を組み立て createPost]
   K --> L{success?}
+  K -. CompressedImageTooLargeException .-> N8[送信中解除・通知: 圧縮後も10MBを超える画像があるため投稿できません] --> Z
   L -- no --> N7[送信中解除・通知: 投稿に失敗しました isError:false] --> Z
   L -- yes --> Y[true]
 ```
@@ -270,7 +271,7 @@ flowchart TD
    - `createdAt`: `DateTime.now()`
    - `locationName`: 引数を `trim()`、空なら `null`
    - `tags`: `_tags` のコピー
-8. `_postRepository.createPost(post, List.of(_images), contestId: selectedContest?.id)`。
+8. `_postRepository.createPost(post, List.of(_images), contestId: selectedContest?.id)` を `try` で呼ぶ。`CompressedImageTooLargeException` を捕捉したら、（破棄済みなら即 false）`_setPosting(false)`、通知 `error.message`（「圧縮後も10MBを超える画像があるため投稿できません」、`isError: true`）、`false`（Issue #99）。
 9. 破棄済みなら `false`。失敗なら `_setPosting(false)`、通知「投稿に失敗しました」（`isError: false`）。
 10. `success` を返す。成功時は `_isPosting` を true のまま残す（View がダイアログを閉じる）。
 
@@ -299,16 +300,17 @@ flowchart TD
 | 枚数上限（追加時・選択開始時・送信時） | 画像は最大{maxImages}枚までです | true |
 | 採用写真が外れた | 撮影場所の写真が外されたため、タップした場所に戻しました | false |
 | 応募先未選択 | 応募するコンテストを選択してください | true |
-| 1 枚 10MB 超 | 1枚あたり10MBを超える画像は投稿できません | true |
-| 合計 100MB 超 | 画像の合計サイズが100MBを超えています | true |
+| 元画像 1 枚 30MB 超 | 1枚あたり30MBを超える画像は投稿できません | true |
+| 元画像の合計 100MB 超 | 画像の合計サイズが100MBを超えています | true |
 | 未ログイン | ログインが必要です | true |
 | 応募済み | コンテストへの応募は1人1投稿までです | true |
 | 応募状況の確認で例外 | 応募状況を確認できませんでした | true |
+| 圧縮後 10MB 以上の画像がある（`CompressedImageTooLargeException`） | 圧縮後も10MBを超える画像があるため投稿できません | true |
 | `createPost` が false | 投稿に失敗しました | **false** |
 
 例外の扱い:
 
-- `hasContestEntry` の例外のみ `submit` 内で捕捉する。`createPost` は例外を投げない設計（false を返す）。
+- `submit` 内で捕捉するのは `hasContestEntry` の例外と、`createPost` が投げる `CompressedImageTooLargeException` だけ。それ以外の `createPost` の失敗は false で返る。
 - `readAsBytes` / `extractGpsLocation` の例外は捕捉しない（`extractGpsLocation` は内部で捕捉済み）。
 - 非同期処理の再開時に `_disposed` を確認し、破棄後に `notifyListeners()` や `_notices.add` を呼ばない。
 
@@ -324,6 +326,7 @@ flowchart TD
 - 画像 0 枚では送信しない、未ログイン通知、応募先未選択通知
 - 応募済みなら送信せず送信中を解除して通知
 - `createPost` 失敗で送信中を解除して通知
+- 圧縮後も 10MB 以上の画像があれば理由を通知し、送信中を解除する
 
 `test/ui/post/post_add_dialog_test.dart` でダイアログ経由に確認していること: 応募トグル・応募先の保持、撮影場所の採用・元に戻す・無視と送信位置、並び替え。
 

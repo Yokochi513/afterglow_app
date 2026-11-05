@@ -27,14 +27,18 @@ Firebase には触れない。テストで重い処理（圧縮・EXIF 読取）
 |---|---|---|
 | クラス | `ImageService` | 本体 |
 | 定数 | `allowedExtensions` | `{'jpg', 'jpeg', 'png', 'bmp', 'heic'}` |
-| 定数 | `maxImageBytes` | `10 * 1024 * 1024`（10MB） |
-| 定数 | `maxTotalBytes` | `100 * 1024 * 1024`（100MB） |
+| 定数 | `maxImageBytes` | `30 * 1024 * 1024`（元画像 1 枚 30MB、Issue #99） |
+| 定数 | `maxTotalBytes` | `100 * 1024 * 1024`（元画像の合計 100MB） |
+| 定数 | `maxCompressedImageBytes` | `10 * 1024 * 1024`（圧縮後 1 枚 10MB **未満**のみ可。`storage.rules` と揃える） |
+| 定数 | `compressedImageTooLargeMessage` | `'圧縮後も10MBを超える画像があるため投稿できません'` |
 | 定数 | `maxShorterSidePixels` | `2048` |
 | 定数 | `compressQuality` | `85` |
 | メソッド | `extractGpsLocation` | EXIF → `LatLng?` |
 | メソッド | `isAllowedExtension` | ファイル名 → bool |
 | メソッド | `validateSizes` | バイト列一覧 → エラーメッセージ or null |
+| メソッド | `isCompressedSizeAllowed` | 圧縮後バイト列 → bool |
 | メソッド | `compressImage` | `XFile` → 圧縮済み `Uint8List` |
+| クラス | `CompressedImageTooLargeException` | 圧縮後も上限以上の画像があり投稿を中止したことを表す例外（`implements Exception`） |
 
 ## 3. 公開インターフェース（コンストラクタ引数・プロパティ・メソッドのシグネチャと説明）
 
@@ -44,14 +48,21 @@ ImageService();
 Future<LatLng?> extractGpsLocation(Uint8List bytes);
 bool isAllowedExtension(String fileName);
 String? validateSizes(List<Uint8List> imageBytes);
+bool isCompressedSizeAllowed(Uint8List compressedBytes);
 Future<Uint8List> compressImage(XFile image);
+
+class CompressedImageTooLargeException implements Exception {
+  const CompressedImageTooLargeException();
+  String get message; // ImageService.compressedImageTooLargeMessage
+}
 ```
 
 | メソッド | 戻り値 | 説明 |
 |---|---|---|
 | `extractGpsLocation(bytes)` | `LatLng?` | 撮影位置。読めない・不正なら null（例外を投げない） |
 | `isAllowedExtension(fileName)` | `bool` | 末尾の拡張子（大文字小文字無視）が `allowedExtensions` に含まれるか |
-| `validateSizes(imageBytes)` | `String?` | 上限超過ならエラーメッセージ、問題なければ null |
+| `validateSizes(imageBytes)` | `String?` | 元画像（圧縮前）が上限超過ならエラーメッセージ、問題なければ null |
+| `isCompressedSizeAllowed(compressedBytes)` | `bool` | `compressedBytes.length < maxCompressedImageBytes` |
 | `compressImage(image)` | `Uint8List` | 圧縮後の JPEG バイト列 |
 
 ## 4. 内部状態（フィールド・状態遷移）
@@ -84,11 +95,15 @@ Future<Uint8List> compressImage(XFile image);
 
 ### 5.3 `validateSizes`
 
-1. 各バイト列を順に見て、`length > maxImageBytes` のものがあれば即座に `'1枚あたり10MBを超える画像は投稿できません'` を返す。
+1. 各バイト列を順に見て、`length > maxImageBytes` のものがあれば即座に `'1枚あたり30MBを超える画像は投稿できません'` を返す。
 2. 合計が `maxTotalBytes` を超えたら `'画像の合計サイズが100MBを超えています'` を返す。
 3. いずれも満たさなければ `null`。
 
-境界値はちょうど 10MB / 100MB を許容する（`>` 判定）。
+境界値はちょうど 30MB / 100MB を許容する（`>` 判定）。
+
+### 5.3.1 `isCompressedSizeAllowed`
+
+圧縮後のバイト数が `maxCompressedImageBytes` 未満なら `true`。ちょうど 10MB は不可（`storage.rules` の `request.resource.size < 10 * 1024 * 1024` と同じ境界）。`PostRepository.createPost` がアップロード前に全画像へ適用する。
 
 ### 5.4 `compressImage`
 
@@ -109,6 +124,7 @@ Firestore / Storage への読み書きはない。定数値は 2 章のとおり
 | `extractGpsLocation` | 全例外を捕捉して `null` |
 | `isAllowedExtension` | 例外なし |
 | `validateSizes` | 例外なし。メッセージ文字列を返し、`PostAddViewModel` が SnackBar 用の通知に流す |
+| `isCompressedSizeAllowed` | 例外なし。上限以上のとき `PostRepository.createPost` が `CompressedImageTooLargeException` を投げ、`PostAddViewModel` が `message` を通知する |
 | `compressImage` | 捕捉しない（`readAsBytes`・圧縮の失敗は呼び出し元 `PostRepository.createPost` の `catch` で投稿失敗になる） |
 
 ## 8. テスト観点（既存テストが確認していること / 未テストの観点）
@@ -120,17 +136,21 @@ Firestore / Storage への読み書きはない。定数値は 2 章のとおり
 - 壊れたバイト列でも例外を投げず null
 - 許可拡張子（大文字を含む）を受け入れる
 - 非対応拡張子・拡張子なしを拒否する
-- サイズが上限内なら null、1 枚 10MB 超・合計 100MB 超でそれぞれのメッセージ
+- サイズが上限内なら null
+- 元画像は 1 枚 30MB ちょうどまで許容し、超えるとエラー
+- 合計 100MB 超でエラー
+- 圧縮後は 10MB 未満なら許容し、10MB ちょうど以上は拒否
 
 未テストの観点:
 
 - `compressImage`（プラグイン依存のためユニットテストでは他テストがサブクラスで素通しに差し替えている）
 - 南緯・西経（符号反転）、分・秒 ≧ 60、(0, 0) の除外
-- 境界値（ちょうど 10MB / 100MB）
+- 合計ちょうど 100MB の境界
 
 ## 9. 備考・既知の課題
 
 - 拡張子判定はファイル名だけで行い、中身（マジックナンバー）は確認しない。
 - HEIC は拡張子としては許可するが、`Image.memory` でのプレビューや圧縮の可否はプラットフォーム（特に Web）のデコーダに依存する。
-- サイズ検証は圧縮前の元画像のバイト数で行う。アップロードされるのは圧縮後の JPEG。
+- サイズ検証は 2 段階（Issue #99）。元画像（圧縮前）は `validateSizes` で 1 枚 30MB・合計 100MB、アップロードする圧縮後の JPEG は `isCompressedSizeAllowed` で 1 枚 10MB 未満。元画像は投稿ダイアログがメモリに保持するため、合計の上限を据え置いている。
+- 正典（`docs/要件定義.md` / `docs/詳細設計.md` の NFR_02）の数値は 1 枚 10MB のまま（改訂待ち）。
 - `ignore: unnecessary_import` で `image_picker` を直接 import している（`flutter_image_compress` も `XFile` を再エクスポートするが、依存を明示するため）。
