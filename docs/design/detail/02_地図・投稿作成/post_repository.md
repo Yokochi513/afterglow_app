@@ -51,7 +51,7 @@ PostRepository({
 
 | シグネチャ | 説明 | 主な呼び出し元 |
 |---|---|---|
-| `Future<bool> createPost(Post post, List<XFile> imageFiles, {String? contestId, bool stayAnonymous = false})` | 画像をアップロードして投稿を作成する。成功で true、失敗で false（例外は投げない）。`stayAnonymous` は互換のため残っているが**値は使わない** | `PostAddViewModel.submit` |
+| `Future<bool> createPost(Post post, List<XFile> imageFiles, {String? contestId, bool stayAnonymous = false})` | 画像をアップロードして投稿を作成する。成功で true、失敗で false。ただし圧縮後も 10MB 以上の画像があるときだけ、何もアップロードせず `CompressedImageTooLargeException` を投げる。`stayAnonymous` は互換のため残っているが**値は使わない** | `PostAddViewModel.submit` |
 | `Future<bool> hasContestEntry(String contestId, String userId)` | そのユーザーがコンテストに応募済み（応募投稿が現存）か | `PostAddViewModel.submit`, `createPost` 内部 |
 | `Future<bool> updatePost(Post post, {required String caption, required List<String> imageUrls, required List<String> removedImageUrls, double? latitude, double? longitude})` | 説明・画像一覧・（任意で）位置を更新し、外した画像を Storage から消す | `PostDetailViewModel` |
 | `Future<bool> deletePost(Post post)` | 投稿ドキュメントと画像を削除する | `PostDetailViewModel` |
@@ -104,8 +104,11 @@ flowchart TD
   E -- no --> F
   E -- yes --> G{hasContestEntry?}
   G -- yes --> F
-  G -- no --> H
-  B -- no --> H[画像を並列で圧縮・アップロード]
+  G -- no --> H0
+  B -- no --> H0[全画像を並列で圧縮]
+  H0 --> H1{全画像が圧縮後 10MB 未満?}
+  H1 -- no --> T[CompressedImageTooLargeException を rethrow]
+  H1 -- yes --> H[圧縮済み画像を並列でアップロード]
   H --> I[postData を組み立て]
   I --> J{応募作品?}
   J -- no --> K[posts/postId を set]
@@ -122,13 +125,13 @@ flowchart TD
    1. `contests/{contestId}` を `get`。`data()` が null なら `false`。
    2. `Contest.fromSnapshot` で組み立て、`!contest.isEntryOpen`・`imageFiles.isEmpty`・`imageFiles.length > contest.maxImages` のいずれかなら `false`。
    3. `hasContestEntry(contestId, post.userId)` が true なら `false`。
-3. **画像アップロード**（`Future.wait` で全画像を並列実行。結果の URL リストは `imageFiles` の順序を保つ）。各画像 `index` について:
+3. **画像の圧縮と検証**（Issue #99）: `Future.wait(imageFiles.map(_imageService.compressImage))` で全画像を並列に圧縮する（短辺 2048px・品質 85%・JPEG）。1 枚でも `_imageService.isCompressedSizeAllowed` が false（10MB 以上）なら `CompressedImageTooLargeException` を投げる。この時点では何もアップロードしていない。
+4. **画像アップロード**（`Future.wait` で全画像を並列実行。結果の URL リストは `imageFiles` の順序を保つ）。圧縮済みの各画像 `index` について:
    1. 参照 `_storage.ref().child('posts/${post.userId}/${post.id}_$index.jpg')` を作る（応募作品でも実投稿者 UID のパス）。
-   2. `_imageService.compressImage(imageFile)` で圧縮（短辺 2048px・品質 85%・JPEG）。
-   3. `putData(bytes, SettableMetadata(contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable'))`。
-   4. 成功したら `uploadedRefs` に追加し、`uploadTask.ref.getDownloadURL()` を返す。
-4. **ドキュメント組み立て**: `postRef = posts/{post.id}`。応募作品なら `userId` を `''`、それ以外は `post.userId`。`likeCount`・`commentCount` は `post` の値によらず `0`。`createdAt` は `Timestamp.fromDate(post.createdAt)`。応募作品のみ `contestId`・`stayAnonymous: false`（引数によらず固定）・`voteCount: 0` を加える（6 章）。
-5. **書き込み**
+   2. `putData(bytes, SettableMetadata(contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable'))`。
+   3. 成功したら `uploadedRefs` に追加し、`uploadTask.ref.getDownloadURL()` を返す。
+5. **ドキュメント組み立て**: `postRef = posts/{post.id}`。応募作品なら `userId` を `''`、それ以外は `post.userId`。`likeCount`・`commentCount` は `post` の値によらず `0`。`createdAt` は `Timestamp.fromDate(post.createdAt)`。応募作品のみ `contestId`・`stayAnonymous: false`（引数によらず固定）・`voteCount: 0` を加える（6 章）。
+6. **書き込み**
    - 通常投稿: `postRef.set(postData)`。
    - 応募作品: `contestRef = contests/{contestId}`, `entryRef = contestRef/entries/{post.userId}` として `runTransaction`:
      1. `transaction.get(contestRef)`、`transaction.get(entryRef)`。
@@ -136,8 +139,9 @@ flowchart TD
      3. コンテストの `data()` が null なら `StateError('コンテストが見つかりません')`。
      4. `!contest.isEntryOpen || imageUrls.length > contest.maxImages` なら `StateError('応募条件を満たしていません')`。
      5. `transaction.set(postRef, postData)`、`transaction.set(postRef/private/author, {'userId': post.userId})`、`transaction.set(entryRef, {'postId': post.id})`。
-6. `true` を返す。
-7. **`catch (_)`**: `uploadedRefs` の各参照を並列に `delete()`（個別の失敗は握りつぶす）してから `false` を返す。
+7. `true` を返す。
+8. **`on CompressedImageTooLargeException`**: `rethrow`（3 のとおりアップロード前なので掃除は不要）。
+9. **`catch (_)`**: `uploadedRefs` の各参照を並列に `delete()`（個別の失敗は握りつぶす）してから `false` を返す。
 
 ### 5.2 `hasContestEntry`
 
@@ -250,7 +254,7 @@ flowchart TD
 
 | メソッド | 失敗時 |
 |---|---|
-| `createPost` | 全例外を捕捉し、アップロード済み画像を削除して `false`。トランザクション内の `StateError` メッセージ（「応募は1人1投稿までです」等）は UI には出ない（UI は一律「投稿に失敗しました」） |
+| `createPost` | `CompressedImageTooLargeException` だけは `on` 節で捕捉して `rethrow` する（アップロード前なので掃除不要。`PostAddViewModel` が理由を表示する）。それ以外の全例外を捕捉し、アップロード済み画像を削除して `false`。トランザクション内の `StateError` メッセージ（「応募は1人1投稿までです」等）は UI には出ない（UI は一律「投稿に失敗しました」） |
 | `hasContestEntry` | 捕捉しない（呼び出し元へ伝播） |
 | `updatePost` | Firestore 更新失敗で `false`。Storage 削除失敗は無視して `true` |
 | `deletePost` | Firestore 削除失敗で `false`。Storage 削除失敗は無視して `true` |
@@ -267,6 +271,7 @@ flowchart TD
 - 複数画像で別々の URL、`posts/{userId}/{postId}_{i}.jpg` のパス
 - 画像 0 枚の通常投稿は成功し URL 無しで保存される
 - 画像が読めないとき false で何も書かない
+- 圧縮後に 10MB 以上の画像があれば `CompressedImageTooLargeException` を投げ、投稿ドキュメントも Storage の画像（上限内の画像も含む）も作られない
 - `getPosts` の逆順・空リスト・追加時の再通知
 - `deletePost` がドキュメントと画像を消す、画像 0 枚でも成功
 - `updatePost` が `updatedAt` を書く、座標両方指定時のみ位置更新
