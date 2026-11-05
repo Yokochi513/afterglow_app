@@ -25,7 +25,7 @@ Afterglow is a Flutter + Firebase app (`lib/` Flutter client, `functions/` TypeS
 ### 2. Implement
 
 7. Implement the change following the repo rules:
-   - Layer split: UI in `lib/pages`/`lib/widgets`, data access in `lib/services`, models in `lib/models`; widgets never touch Firestore/Storage directly.
+   - Layer split: UI (View + ViewModel) in `lib/ui/<feature>/` (shared widgets in `lib/ui/core/widgets/`), data access in `lib/data/repositories` / `lib/data/services`, models in `lib/data/models`; UI never touches Firestore/Storage directly and gets repositories via `context.read<T>()` (registered in `lib/app/dependencies.dart`), never by constructing them.
    - DI-style services (`PostService({FirebaseFirestore? firestore})` with `.instance` defaults), immutable models (`const` constructor + `factory fromSnapshot`, defaults for missing fields), collection names as `static const`.
    - Japanese comments, matching the surrounding code's comment density, naming, and idioms. `flutter_lints` clean.
    - Do **not** edit `docs/`, do **not** add dependencies beyond the Issue scope, do **not** touch secrets or generated outputs.

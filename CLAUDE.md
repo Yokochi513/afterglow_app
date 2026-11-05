@@ -14,25 +14,30 @@ Afterglow（`afterglow_app`）で作業する際の指針。Claude はこのフ�
 
 ```
 lib/
-  main.dart              アプリ起点。Firebase 初期化 → AuthGate
+  main.dart              アプリ起点。Firebase 初期化 → MyApp
   firebase_options.dart  FlutterFire 生成物（追跡済み・手編集しない）
-  models/                イミュータブルなデータクラス（Post, AppUser）
-  pages/                 画面。auth/ に認証系（AuthGate, login, register, pending_approval）
-  services/              Firestore/Storage/Auth へのアクセス層
-  widgets/               再利用 UI（post_widget, post_add_dialog 等）
+  app/                   app.dart（MaterialApp）、dependencies.dart（依存の組み立て）、main_shell.dart（下部タブ）
+  data/
+    models/              イミュータブルなデータクラス（Post, AppUser 等）
+    repositories/        Firestore/Storage/Auth・端末ストレージへのアクセス層（PostRepository 等）
+    services/            Firebase 以外の外部 API・端末機能の薄いラッパー（Geocoding, Location, Image, PushNotification）
+  ui/
+    core/widgets/        2 つ以上の機能で使う部品（post_card, reaction_bar 等）
+    <feature>/           機能ごとの画面と ViewModel（*_view_model.dart）。機能専用の部品は widgets/
 functions/src/index.ts   ユーザー登録の承認フロー（Firestore トリガー + HTTPS）
 docs/                    正典ドキュメント（読み取り専用・下記参照）
-test/                    models/ services/ widgets/ 単位のテスト
+test/                    lib/ と同じ構成（data/…, ui/<feature>/）。helpers/ にテスト用の依存提供
 ```
 
-レイヤの越境をしない: UI は `pages`/`widgets`、データ入出力は `services`、データ構造は `models`。ウィジェットから Firestore/Storage を直接触らず、必ず `services` を経由する。
+レイヤの越境をしない（詳細は `docs/design/00_システム概要.md` 3 章）。依存方向は **View → ViewModel → Repository → Service/SDK** の一方向。UI（`ui/`）から Firestore/Storage を直接触らず、必ず `data/repositories` を経由する。状態・入力検証・送信を持つ画面は ViewModel（`ChangeNotifier`）に切り出し、ViewModel は `BuildContext` に触れない。
 
 ## コード規約
 
 - **コメント・ドキュメント・コミット・PR は日本語**（リポジトリの慣習）。ユーザーが言語を指定した場合はそれに従う。
-- **サービスは依存注入（DI）**: `PostService({FirebaseFirestore? firestore, FirebaseStorage? storage})` のように Firebase インスタンスをコンストラクタで受け、既定値に `.instance` を使う。テストがモック（`fake_cloud_firestore` / `firebase_storage_mocks` / `firebase_auth_mocks`）を注入できるよう、この形を維持する。
+- **Repository / Service は依存注入（DI）**: `PostRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})` のように Firebase インスタンスをコンストラクタで受け、既定値に `.instance` を使う。テストがモック（`fake_cloud_firestore` / `firebase_storage_mocks` / `firebase_auth_mocks`）を注入できるよう、この形を維持する。
+- **UI は Repository / Service を生成しない**: `lib/app/dependencies.dart` の `AppDependencies` で組み立て、`provider` で提供したものを `context.read<T>()` で受け取る。新しい Repository / Service を足したら `AppDependencies` と `DependencyScope` に登録する。ウィジェットテストは `test/helpers/dependencies.dart` の `withDependencies` でモックを提供する。
 - **モデルはイミュータブル**: `const` コンストラクタ + `factory fromSnapshot(id, Map)`。`AppUser` は `toMap()` も持つ。欠損フィールドは必ず既定値でフォールバックする（`document['x'] ?? ...`）。
-- **コレクション名は `static const` 定数**でサービスに定義（例 `postsCollection = 'posts'`）。文字列リテラルを散らさない。
+- **コレクション名は `static const` 定数**で Repository に定義（例 `postsCollection = 'posts'`）。文字列リテラルを散らさない。
 - lint は `flutter_lints`。`flutter analyze` の警告はゼロに保つ。
 
 ## Firebase バックエンド構造
