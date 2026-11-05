@@ -1,0 +1,456 @@
+import 'package:provider/provider.dart';
+import 'package:afterglow_app/data/models/post.dart';
+import 'package:afterglow_app/ui/post/post_detail_page.dart';
+import 'package:afterglow_app/ui/profile/profile_page.dart';
+import 'package:afterglow_app/ui/info/release_notes_page.dart';
+import 'package:afterglow_app/ui/info/usage_guide_page.dart';
+import 'package:afterglow_app/data/services/geocoding_service.dart';
+import 'package:afterglow_app/data/services/location_service.dart';
+import 'package:afterglow_app/data/repositories/post_repository.dart';
+import 'package:afterglow_app/data/repositories/release_note_repository.dart';
+import 'package:afterglow_app/data/repositories/usage_guide_repository.dart';
+import 'package:afterglow_app/ui/core/widgets/comment_section.dart';
+import 'package:afterglow_app/ui/map/widgets/map_search_bar.dart';
+import 'package:afterglow_app/ui/notification/widgets/notification_bell.dart';
+import 'package:afterglow_app/ui/post/post_add_dialog.dart';
+import 'package:afterglow_app/ui/map/widgets/post_location_confirm_bar.dart';
+import 'package:afterglow_app/ui/post/widgets/post_widget.dart';
+import 'package:afterglow_app/ui/core/widgets/reaction_bar.dart';
+import 'package:afterglow_app/ui/info/widgets/release_note_dialog.dart';
+import 'package:afterglow_app/ui/info/widgets/usage_guide_dialog.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class MapScreen extends StatefulWidget {
+  const MapScreen({super.key});
+
+  @override
+  State<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends State<MapScreen> {
+  static const LatLng _defaultLocation = LatLng(34.669478, 133.951104);
+
+  static const double _defaultZoom = 14.0;
+
+  /// 現在地・検索結果へ移動したときのズームレベル。
+  static const double _locatedZoom = 16.0;
+
+  /// 現在地マーカーの外枠サイズ。青丸（18px）＋影のはみ出し分の余白。
+  static const double _myLocationMarkerSize = 28.0;
+
+  /// フィードバック受付フォーム（Google フォーム）。
+  static const String _feedbackFormUrl = 'https://forms.gle/5xaCtzyDeqFVBF9D7';
+
+  final MapController _mapController = MapController();
+
+  LatLng _currentPos = _defaultLocation;
+
+  /// GPS で実際に取得できた現在地。未取得の間は null で、青丸を描画しない。
+  /// 地図タップで動く [_currentPos] とは別に保持する。
+  LatLng? _myLocation;
+
+  /// 地図タップで選択中の投稿位置。null の間は選択マーカーも確認バーも出さない。
+  /// 再タップで置き換わる（＝位置の取り直し）。Issue #36 の確認ステップ用。
+  LatLng? _selectedPos;
+
+  late final PostRepository _postRepository = context.read<PostRepository>();
+  late final Stream<List<Post>> _postsStream = _postRepository.getPosts();
+
+  late final ReleaseNoteRepository _releaseNoteRepository = context
+      .read<ReleaseNoteRepository>();
+
+  late final UsageGuideRepository _usageGuideRepository = context
+      .read<UsageGuideRepository>();
+
+  late final LocationService _locationService = context.read<LocationService>();
+
+  /// 現在地取得中は true。ボタンの二重押下を防ぎ、スピナーを表示する。
+  bool _isLocating = false;
+
+  // 既にプリキャッシュ済みの画像URL（再ビルドでの重複プリキャッシュを防ぐ）
+  final Set<String> _precachedUrls = {};
+
+  /// ピン押下時の軽量サマリー（Dialog）。写真・いいね・コメントだけを見せ、
+  /// 場所と編集は詳細ページ（[PostDetailPage]）に任せる。
+  void _openSummary(Post post) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => PostCardView(
+        post,
+        reactionBar: ReactionBar(post: post),
+        commentSection: CommentSection(post: post),
+        onOpenDetail: () {
+          Navigator.of(dialogContext).pop();
+          _openDetail(post);
+        },
+      ),
+    );
+  }
+
+  /// 投稿の詳細ページ。サマリーの「詳細を見る」から開く。
+  void _openDetail(Post post) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PostDetailPage(
+          post,
+          reactionBar: ReactionBar(post: post),
+          commentSection: CommentSection(post: post),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // 最初のフレーム描画後に、初回起動の使い方ガイド／更新後のお知らせを出す。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showStartupDialogs());
+  }
+
+  /// 起動時に出す案内。初めての利用なら使い方ガイドを優先し、
+  /// 「新しくなりました」と重ねて出さない（Issue #47）。
+  Future<void> _showStartupDialogs() async {
+    if (await _maybeShowUsageGuide()) return;
+    await _maybeAnnounce();
+  }
+
+  /// 初回起動なら使い方ガイドを表示し、表示済みとして記録する。表示したら true。
+  /// 新規ユーザーにとって過去の変更履歴は不要なため、リリースお知らせも
+  /// 既読として記録しておく。案内の失敗はアプリ利用を妨げないため握りつぶす。
+  Future<bool> _maybeShowUsageGuide() async {
+    try {
+      if (!await _usageGuideRepository.shouldShowGuide()) return false;
+      if (!mounted) return false;
+      await UsageGuideDialog.show(context);
+      await _usageGuideRepository.markGuideShown();
+      await _releaseNoteRepository.markAnnounced();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 未読のバージョンがあればリリースお知らせダイアログを表示し、既読として記録する。
+  /// アプリの主要動作ではないため、読み込みに失敗しても無視する。
+  Future<void> _maybeAnnounce() async {
+    try {
+      if (!await _releaseNoteRepository.shouldAnnounce()) return;
+      final note = await _releaseNoteRepository.announcementNote();
+      if (note != null && mounted) {
+        await ReleaseNoteDialog.show(context, note);
+      }
+      await _releaseNoteRepository.markAnnounced();
+    } catch (_) {
+      // お知らせの表示失敗はアプリ利用を妨げないため握りつぶす
+    }
+  }
+
+  void _openReleaseNotes() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ReleaseNotesPage()));
+  }
+
+  /// 確認ダイアログを挟んでからフィードバックフォームを外部ブラウザで開く。
+  Future<void> _openFeedbackForm() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('フィードバック'),
+        content: const Text('ご意見・ご要望のフォームを開きます。外部サイト（Google フォーム）へ移動しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('開く'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final opened = await launchUrl(
+      Uri.parse(_feedbackFormUrl),
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (opened || !mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('フォームを開けませんでした')));
+  }
+
+  /// 選択中の位置で投稿ダイアログを開く。閉じたら（投稿の成否によらず）
+  /// 選択状態をクリアし、マーカーと確認バーを消す。
+  Future<void> _confirmSelectedLocation() async {
+    final pos = _selectedPos;
+    if (pos == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => PostAddDialog(pos: pos),
+    );
+    if (!mounted) return;
+    setState(() => _selectedPos = null);
+  }
+
+  /// 位置の選択をやめ、選択マーカーと確認バーを消す。
+  void _cancelSelection() {
+    setState(() => _selectedPos = null);
+  }
+
+  /// 検索候補で選ばれた場所へ地図を移動する（Issue #39）。
+  /// 移動先はあくまで閲覧位置で、投稿位置の選択状態は変えない。
+  void _moveToPlace(PlaceSearchResult place) {
+    final target = LatLng(place.latitude, place.longitude);
+    setState(() => _currentPos = target);
+    _mapController.move(target, _locatedZoom);
+  }
+
+  /// 現在地を取得し、成功したら地図をそこへ移動する。
+  /// 失敗（サービス無効・拒否・タイムアウト等）してもクラッシュせず、
+  /// SnackBar で理由を案内する（永久拒否時は設定を開く導線を出す）。
+  Future<void> _moveToCurrentLocation() async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+
+    final result = await _locationService.getCurrentLocation();
+
+    if (!mounted) return;
+    setState(() => _isLocating = false);
+
+    if (result.isSuccess) {
+      final position = result.position!;
+      final target = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _currentPos = target;
+        _myLocation = target;
+      });
+      _mapController.move(target, _locatedZoom);
+      return;
+    }
+
+    final errorType = result.errorType!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(LocationService.messageFor(errorType)),
+        action: errorType == LocationErrorType.permissionDeniedForever
+            ? SnackBarAction(
+                label: '設定を開く',
+                onPressed: _locationService.openAppSettings,
+              )
+            : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Map'),
+        actions: [
+          const NotificationBell(),
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: '使い方',
+            onPressed: () => UsageGuidePage.open(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.feedback_outlined),
+            tooltip: 'フィードバック',
+            onPressed: _openFeedbackForm,
+          ),
+          IconButton(
+            icon: const Icon(Icons.campaign_outlined),
+            tooltip: 'お知らせ',
+            onPressed: _openReleaseNotes,
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            tooltip: 'プロフィール',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
+              );
+            },
+          ),
+        ],
+      ),
+      // 位置選択中だけ出す確認バー。bottomSheet にすると現在地 FAB が
+      // 自動で押し上げられ、ボタンと重ならない。
+      bottomSheet: _selectedPos == null
+          ? null
+          : PostLocationConfirmBar(
+              onConfirm: _confirmSelectedLocation,
+              onCancel: _cancelSelection,
+            ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: '現在地へ移動',
+        onPressed: _isLocating ? null : _moveToCurrentLocation,
+        child: _isLocating
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.my_location),
+      ),
+      body: Stack(
+        children: [
+          _buildMap(),
+          // 場所検索バー。地図より前面に重ね、結果一覧もこの上に出す。
+          Positioned(
+            top: 8,
+            left: 8,
+            right: 8,
+            child: SafeArea(child: MapSearchBar(onPlaceSelected: _moveToPlace)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMap() {
+    return StreamBuilder<List<Post>>(
+      stream: _postsStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final posts = snapshot.data ?? [];
+
+        // 画像プリロード: Firestore データ到着後に裏でダウンロード開始
+        // （URLごとに一度だけ実行し、再ビルドでの重複ダウンロードを防ぐ）
+        for (final post in posts) {
+          for (final url in post.imageUrls) {
+            if (_precachedUrls.add(url)) {
+              precacheImage(
+                CachedNetworkImageProvider(url),
+                context,
+                onError: (_, _) {},
+              );
+            }
+          }
+        }
+
+        return FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _currentPos,
+            initialZoom: _defaultZoom,
+            // Issue #57: 意図せず地図の向きが変わって使いにくいため、回転ジェスチャーだけ無効化する。
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+            ),
+            // タップは投稿位置の「選択」まで。ダイアログは確認バーの
+            // 「ここに投稿」を押したときだけ開く（Issue #36）。
+            onTap: (tapPosition, latLng) {
+              setState(() {
+                _currentPos = latLng;
+                _selectedPos = latLng;
+              });
+            },
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+              userAgentPackageName: 'com.afterglow_app.app',
+            ),
+            // 現在地の青丸。投稿ピンより先に描画して背面に置き、ピンを隠さない。
+            if (_myLocation != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _myLocation!,
+                    width: _myLocationMarkerSize,
+                    height: _myLocationMarkerSize,
+                    // 地図はどこをタップしても投稿できる設計のため、青丸が
+                    // タップを吸って「今いる場所に投稿」を塞がないようにする。
+                    child: const IgnorePointer(child: _MyLocationDot()),
+                  ),
+                ],
+              ),
+            MarkerLayer(
+              markers: posts.map((post) {
+                return Marker(
+                  point: LatLng(post.latitude, post.longitude),
+                  width: 48,
+                  height: 48,
+                  child: GestureDetector(
+                    onTap: () => _openSummary(post),
+                    child: const Icon(
+                      Icons.location_on,
+                      color: Colors.red,
+                      size: 40,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            // 選択中の投稿位置マーカー。投稿ピン（赤）と見分けられるよう
+            // テーマ色にし、最前面に描画する。再タップで位置を取り直せる
+            // よう、タップは吸わずに地図へ通す。
+            if (_selectedPos != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _selectedPos!,
+                    width: 48,
+                    height: 48,
+                    child: IgnorePointer(
+                      child: Icon(
+                        Icons.add_location_alt,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 40,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 現在地を示す青丸（Google Maps 風）。白リングと影で地図タイルから浮かせる。
+/// 投稿ピン（赤・40px）より小さくし、地図の主役を投稿ピンのまま保つ。
+class _MyLocationDot extends StatelessWidget {
+  const _MyLocationDot();
+
+  static const double _diameter = 18.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: _diameter,
+        height: _diameter,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A73E8),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

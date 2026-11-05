@@ -43,7 +43,7 @@ https://yokochi513.github.io/afterglow_app/ へ公開する）。`dev` → `main
 ## 4. CHANGELOG.md
 
 `CHANGELOG.md` は Keep a Changelog 形式で、**アプリに同梱されるアセット**（`pubspec.yaml` の `assets:`）。
-`lib/services/release_note_service.dart` が実行時にパースし、更新後の初回起動でお知らせとして表示する。
+`lib/data/repositories/release_note_repository.dart` が実行時にパースし、更新後の初回起動でお知らせとして表示する。
 つまりこのファイルの文面と見出しは**そのまま利用者が読む UI**であり、書式ミスは表示バグになる。
 
 - `## [Unreleased]` を `## [X.Y.Z+N] - YYYY-MM-DD` にリネームする。

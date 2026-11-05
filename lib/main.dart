@@ -1,10 +1,11 @@
-import 'package:afterglow_app/pages/auth/auth_gate.dart';
-import 'package:afterglow_app/services/push_notification_service.dart';
+import 'package:afterglow_app/app/app.dart';
+import 'package:afterglow_app/app/dependencies.dart';
+import 'package:afterglow_app/data/services/push_notification_service.dart';
+import 'package:afterglow_app/firebase_options.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,22 +16,5 @@ void main() async {
           defaultTargetPlatform == TargetPlatform.iOS)) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   }
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Afterglow',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        fontFamily: 'NotoSansJP',
-      ),
-      home: const AuthGate(),
-    );
-  }
+  runApp(MyApp(dependencies: AppDependencies()));
 }
