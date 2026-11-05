@@ -17,6 +17,21 @@ class _PassthroughImageService extends ImageService {
   Future<Uint8List> compressImage(XFile image) => image.readAsBytes();
 }
 
+/// パスが指定した名前で終わる画像だけ、圧縮後も上限ちょうど（10MB）になる画像サービス。
+class _OversizedImageService extends ImageService {
+  _OversizedImageService(this.oversizedName);
+
+  final String oversizedName;
+
+  @override
+  Future<Uint8List> compressImage(XFile image) async {
+    if (image.path.endsWith(oversizedName)) {
+      return Uint8List(ImageService.maxCompressedImageBytes);
+    }
+    return image.readAsBytes();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -491,6 +506,52 @@ void main() {
           .doc(post.id)
           .get();
       expect(snapshot.exists, isFalse);
+    });
+
+    test('createPost は圧縮後に10MB以上の画像があれば1枚もアップロードせず例外を投げる', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'post_repository_oversized',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      final small = await File(
+        '${tempDir.path}/small.jpg',
+      ).writeAsBytes(<int>[1, 2, 3]);
+      final large = await File(
+        '${tempDir.path}/large.jpg',
+      ).writeAsBytes(<int>[4, 5, 6]);
+
+      final repository = PostRepository(
+        firestore: firestore,
+        storage: storage,
+        imageService: _OversizedImageService('large.jpg'),
+      );
+      final post = Post(
+        id: 'post-oversized',
+        userId: 'user-1',
+        caption: 'panorama',
+        imageUrls: const [],
+        latitude: 35.0,
+        longitude: 139.0,
+        createdAt: DateTime(2026, 4, 18, 14, 0),
+      );
+
+      await expectLater(
+        repository.createPost(post, [XFile(small.path), XFile(large.path)]),
+        throwsA(isA<CompressedImageTooLargeException>()),
+      );
+
+      final snapshot = await firestore
+          .collection(PostRepository.postsCollection)
+          .doc(post.id)
+          .get();
+      expect(snapshot.exists, isFalse);
+      // 上限内の 1 枚目もアップロードされていない
+      final uploaded = await storage.ref().child('posts/user-1').listAll();
+      expect(uploaded.items, isEmpty);
     });
 
     test(

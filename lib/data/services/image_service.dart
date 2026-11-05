@@ -63,11 +63,24 @@ class ImageService {
     'heic',
   };
 
-  /// 1枚あたりの最大バイト数（10MB, NFR_02）。
-  static const int maxImageBytes = 10 * 1024 * 1024;
+  /// 圧縮前の元画像 1 枚あたりの最大バイト数（30MB, NFR_02 / Issue #99）。
+  ///
+  /// 実際にアップロードするのは圧縮後の画像なので、元画像は大きめに許容する。
+  static const int maxImageBytes = 30 * 1024 * 1024;
 
-  /// 画像全体の最大バイト数（100MB, NFR_02）。
+  /// 圧縮前の元画像の合計の最大バイト数（100MB, NFR_02）。
+  ///
+  /// 元画像は投稿ダイアログがメモリに保持するため、合計は据え置く。
   static const int maxTotalBytes = 100 * 1024 * 1024;
+
+  /// 圧縮後の画像 1 枚のバイト数の上限（この値未満のみ可, 10MB, Issue #99）。
+  ///
+  /// `storage.rules` の `request.resource.size < 10 * 1024 * 1024` と揃える。
+  static const int maxCompressedImageBytes = 10 * 1024 * 1024;
+
+  /// 圧縮後も上限以上となる画像があるときに表示するメッセージ。
+  static const String compressedImageTooLargeMessage =
+      '圧縮後も10MBを超える画像があるため投稿できません';
 
   /// 圧縮後の短辺目標（px, §8.1）。
   static const int maxShorterSidePixels = 2048;
@@ -87,13 +100,13 @@ class ImageService {
 
   /// 選択済み画像のバイト列を検証する（NFR_02）。
   ///
-  /// 1枚でも10MBを超える、または合計が100MBを超える場合はエラーメッセージを
+  /// 1枚でも30MBを超える、または合計が100MBを超える場合はエラーメッセージを
   /// 返す。問題がなければ null を返す。
   String? validateSizes(List<Uint8List> imageBytes) {
     var totalBytes = 0;
     for (final bytes in imageBytes) {
       if (bytes.length > maxImageBytes) {
-        return '1枚あたり10MBを超える画像は投稿できません';
+        return '1枚あたり30MBを超える画像は投稿できません';
       }
       totalBytes += bytes.length;
     }
@@ -102,6 +115,10 @@ class ImageService {
     }
     return null;
   }
+
+  /// 圧縮後のバイト列がアップロード可能な大きさ（10MB 未満）かを判定する。
+  bool isCompressedSizeAllowed(Uint8List compressedBytes) =>
+      compressedBytes.length < maxCompressedImageBytes;
 
   /// アップロード前に短辺2048px・品質85%の JPEG へ圧縮する（§8.1）。
   ///
@@ -118,4 +135,16 @@ class ImageService {
     );
     return compressed;
   }
+}
+
+/// 圧縮後も上限（[ImageService.maxCompressedImageBytes]）以上となる画像が
+/// あるため、アップロードせずに投稿を中止したことを表す例外。
+class CompressedImageTooLargeException implements Exception {
+  const CompressedImageTooLargeException();
+
+  /// 利用者に表示する理由。
+  String get message => ImageService.compressedImageTooLargeMessage;
+
+  @override
+  String toString() => 'CompressedImageTooLargeException: $message';
 }

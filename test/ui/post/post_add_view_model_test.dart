@@ -39,6 +39,9 @@ class _RecordingPostRepository extends PostRepository {
   bool result = true;
   bool hasEntry = false;
 
+  /// 送信時に投げる例外（圧縮後のサイズ超過などの再現用）。
+  Object? error;
+
   @override
   Future<bool> hasContestEntry(String contestId, String userId) async =>
       hasEntry;
@@ -53,6 +56,7 @@ class _RecordingPostRepository extends PostRepository {
     submitted = post;
     submittedImages = imageFiles;
     submittedContestId = contestId;
+    if (error != null) throw error!;
     return result;
   }
 }
@@ -230,6 +234,19 @@ void main() {
       await pumpEventQueue();
       expect(vm.isPosting, isFalse);
       expect(notices.single.message, '投稿に失敗しました');
+    });
+
+    test('圧縮後も10MB以上の画像があれば理由を通知し、送信中を解除する', () async {
+      final vm = build();
+      await vm.loadInitialImages([_image('a.jpg')]);
+      postRepository.error = const CompressedImageTooLargeException();
+
+      expect(await vm.submit(caption: '', locationName: ''), isFalse);
+      await pumpEventQueue();
+
+      expect(vm.isPosting, isFalse);
+      expect(notices.single.message, '圧縮後も10MBを超える画像があるため投稿できません');
+      expect(notices.single.isError, isTrue);
     });
   });
 }
